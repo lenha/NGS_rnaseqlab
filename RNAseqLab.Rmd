@@ -6,21 +6,21 @@ title:  'RNAseq'
 # <a name="begin"></a> RNA-seq data processing and analysis tutorial
 RNA-seq has become a powerful approach to study the continually changing cellular transcriptome. Here, one of the most common questions is to identify genes that are differentially expressed between two conditions, e.g. controls and treatment. The **main** exercise in this tutorial will take you through a basic bioinformatic analysis pipeline to answer just that, it will show you how to find differentially expressed (DE) genes. Briefly,
 
-* in the **main exercise**, we will,
-  * check the quality of the raw reads with [FastQC](#fastqc)
-  * map the reads to the reference genome using [Star](#star)
-  * convert between SAM and BAM files format using [Samtools](#samtools)
-  * assess the post-alignment reads quality using [QualiMap](#qualimap)
-  * count the reads overlapping with genes regions using [featureCounts](#featurecounts)
-  * build statistical model to find DE genes using edgeR from a [prepared R script](#descript)
+* in the **main exercise**, we will, 
+   * check the quality of the raw reads with [FastQC](#fastqc) 
+   * map the reads to the reference genome using [Star](#star) 
+   * convert between SAM and BAM files format using [Samtools](#samtools) 
+   * assess the post-alignment reads quality using [QualiMap](#qualimap) 
+   * count the reads overlapping with genes regions using [featureCounts](#featurecounts) 
+   * build statistical model to find DE genes using [edgeR](#descript)
 
 As discussed during the lecture, RNA-seq experiment does not end with a list of DE genes. If you have time after completing the main exercise, try one (or more) of the bonus exercises. The bonus exercises can be run independently of each other, so choose the one that matches your interest.
 
-* In the **bonus section** you can find additional exercises
-  * **BEx. 01** [Functional annotation](#functanno) how to put DE genes in the biological context of functional annotations
-  * **BEx. 02** [Exon usage](#exon) how to perform analysis of differential exon usage and study alternative splicing
-  * **BEx. 03** [Visualisation](#visual) how to view RNA-seq bam files and present DE results with graphics
-  * **BEx. 04** [_De novo_ transcriptome assembly](#assembly)  how to assembly transcriptome if no reference is present
+* In the **bonus section** you can find additional exercises  
+   * [Functional annotation](#functanno) how to put DE genes in the biological context of functional annotations 
+   * [Exon usage](#exon) how to perform analysis of differential exon usage and study alternative splicing 
+   * [Visualisation](#visual) how to view RNA-seq bam files and present DE results with graphics 
+   * [_De novo_ transcriptome assembly](#assembly)  how to assembly transcriptome if no reference is present 
   
 
 # Data description
@@ -936,7 +936,6 @@ de_res=read.table("./data/DE_allReads.txt",sep="\t", header=TRUE, stringsAsFacto
 len=read.table("./annot/mm10_gene_len.txt", sep="\t", quote="", header=TRUE)
 de_res_len=merge(de_res,len, by="ensembl_gene_id")
 
-
 ################################################################################
 ## get functional annotations from R db packages org.Mm.eg.db and reactome.db ##
 ################################################################################
@@ -1038,28 +1037,7 @@ The results will be saved in the directory *GO\_react\_results*.
 <br />
 <br />
 <br />
-:floppy_disk: **Enter** the exercise working directory:
-<details>
-<summary>:key: Click to see how</summary>
-{% highlight bash %}
-cd /funannot
-{% endhighlight %}
-</details>
-<br />
 
-:floppy_disk: **To perform the functional annotation** you can use a wrapper script *annotate\_de\_results.R*, which is executed as in the main exercise:
-<details>
-<summary>:key: Click to see how</summary>
-{% highlight bash %}
-Rscript annotate_de_results.R
-{% endhighlight %}
-</details>
-<br />
-The results will be saved in the directory *GO\_react\_results*.
-<br />
-
-
-:floppy_disk: Alternatively, you can open the script in RStudio (or a text editor such as Atom or Sublime) and execute each step of the script in a live R session. This way you will be able to "see inside" the script and you can try to follow the individual steps.  
 
 ## Interpretation
 :computer: :floppy_disk: The results are saved as tables in the directory *GO\_react\_results*.
@@ -1193,34 +1171,59 @@ cd /proj/g2016035/nobackup/<username>/transcriptome/exon
 </details>
 <br />
 
-:computer: **Perform the functional annotation** using a wrapper script *deu.R*
+:computer: **Perform the functional annotation**, save as deu.R
 <details>
 <summary>:key: Click to see how</summary>
-{% highlight bash %}
-Rscript deu.R
+{% highlight R %}
+#############################
+## prepare paths and files ###
+#############################
+require("DEXSeq")
+
+inDir="./data"
+countFiles = list.files(inDir, pattern=".txt$", full.names=TRUE)
+
+gff="Mus_musculus.GRCm38.85.chr11.flat.dexseq.gff"
+
+## read in the information on the experiment
+## OBS! the order of the samples in the exp object must be the same as the order of files in the countFiles object
+exp=read.table("experiment.txt", sep="\t", header=T)
+
+## read in the data and create the DEXSeq object
+## the model to test is specified at this step
+dxd = DEXSeqDataSetFromHTSeq(
+  countFiles,
+  sampleData=exp,
+  design= ~ sample + exon + condition:exon,
+  flattenedfile=gff )
+
+## normalise to sequencing depth
+dxd = estimateSizeFactors( dxd )
+## dispersion estimation to distinguish technical and biological variation (noise) from real effects on exon usage due to the different conditions
+dxd = estimateDispersions( dxd )
+plotDispEsts( dxd )
+
+#########################################
+## testing for differential exon usage ##
+#########################################
+
+dxd = testForDEU( dxd )
+dxd = estimateExonFoldChanges( dxd, fitExpToVar="condition")
+
+## read in the data and create the DEXSeq object
+dxr = DEXSeqResults( dxd )
+
+###################################
+## save results as html & table ###
+###################################
+
+DEXSeqHTML( dxr, FDR=0.1, color=c("#FF000080", "#0000FF80") )
+
+res=dxr[complete.cases(dxr[,7]),]
+res=res[res$padj<0.1,]
+write.table(res,"deu_signif_exons.txt", col.names=TRUE, row.names=FALSE, sep="\t", quote=FALSE)
 {% endhighlight %}
 </details>
-<br />
-
-:floppy_disk: **Enter** the exercise working directory:
-<details>
-<summary>:key: Click to see how</summary>
-{% highlight bash %}
-cd /exon
-{% endhighlight %}
-</details>
-<br />
-
-:floppy_disk: **Perform the functional annotation** using a wrapper script *deu.R*
-<details>
-<summary>:key: Click to see how</summary>
-{% highlight bash %}
-Rscript deu.R
-{% endhighlight %}
-</details>
-<br />
-
-:floppy_disk: Alternatively, you can open the script in RStudio (or a text editor such as Atom or Sublime) and execute each step of the script in a live R session. This way you will be able to "see inside" the script and try to follow the individual steps.
 <br />
 
 <br />
@@ -1231,6 +1234,8 @@ Rscript deu.R
 <br />
 <br />
 [Jump to the top](#begin)
+<br />
+<br />
 
 
 #  <a name="visual"></a> Bonus exercise: RNA-seq visualisation
@@ -1367,6 +1372,9 @@ between treatments?
 option under "Regions" in the menu. Would you agree with what they
 state in the paper about certain pathways being down-regulated. If you need
 hints for how to proceed see [Gene List tutorial at Broad](http://software.broadinstitute.org/software/igv/gene_list_view).
+<br />
+<br />
+
 
 # Create publication ready plots from RNA-seq data
 
@@ -1413,7 +1421,56 @@ are not implemented in IGV.
 the Ensembl to identify genomic coordinates and chromosome location
 for this gene.
 
-:computer: Run the script named genePlot.R
+:computer: Make a script named genePlot.R
+{% highlight R %}
+.libPaths(c("/sw/courses/ngsintro/rnaseq_2016/R-packages/3.3.0", "/pica/sw/apps/R_packages/3.3.0/milou", "/pica/sw/apps/R/x86_64/3.3.0/milou/lib64/R/library"))
+
+# For running as command line script and parsing options from command line
+args = commandArgs(trailingOnly=TRUE)
+# test if correct number of arguments are given as input: if not, return an error
+if (length(args)<3) {
+    stop("Please supply chromosome number as well as start and stop position for the plot\n Example: Rscript genePlot.R 2 234243 238555",
+         call.=FALSE)
+}
+
+library(Gviz)
+library(EnsDb.Mmusculus.v79)
+edb <- EnsDb.Mmusculus.v79
+gen <- "mm10"
+chr <- args[1] # parse the first argument after the r-script to chr
+start <- args[2] # parse the second argument after the r-script to start
+stop <- args[3] # parse the second argument after the r-script to stop
+# Collect the sorted bamfile names from bams folder
+bamFiles <- list.files("~/glob/transcriptome/bams/", pattern = "*sorted.bam$",
+                       full.names = TRUE, recursive = TRUE)
+# Allow for using different chromosome names than ucsc
+options(ucscChromosomeNames=FALSE)
+
+# create track see Gviz manual for details
+gat <- GenomeAxisTrack()
+gr <- getGeneRegionTrackForGviz(edb, chromosome = args[1], start = start, end = stop)
+genome(gr) <- "mm10"
+
+alTracklist <- lapply(seq_along(bamFiles), function(x) AlignmentsTrack(
+                                                           bamFiles[[x]],
+                                                           chromosome = chr,
+                                                           genome = gen,
+                                                           name = substring(bamFiles[x], 41,50)))
+# Merge all tracks
+toPlot <- append(list(gat, GeneRegionTrack(gr)),alTracklist)
+width = 14
+height = 14
+
+# Plot to pdf
+pdf("Coverage.pdf", width = width, height = height)  
+plotTracks(toPlot, type = c("coverage"))
+dev.off()
+pdf("Sashimi.pdf", width = width, height = height)  
+plotTracks(toPlot, type = c("sashimi"))
+dev.off()
+{% endhighlight %}
+
+:computer: Run the newly created script
 {% highlight bash %}
 Rscript genePlot.R chromosome start stop
 {% endhighlight %}
@@ -1444,6 +1501,8 @@ Besides this type of plot that sort of mimics what can be done in IGV, R
 makes it possible to visualise patterns of gene expression in many
 different ways. Here we will create a few different plots that is
 often seen and used in RNA-seq expression analysis.
+<br />
+<br />
 
 ## MDS plot 
 
@@ -1467,7 +1526,28 @@ To generate a MDS plot showing that show the the two leading fold
 changes in gene expression between samples run the MAplot.R script as
 this.
 
-:computer: Run the script named MDSplot.R
+:computer: Make a R script name MDSplot.R
+<details>
+<summary>:key: Click to see how to do this</summary>
+{% highlight R %}
+# Load library
+library(edgeR)
+
+# Read in DE data
+deResults <- list.files("~/glob/transcriptome", pattern = ".RData",
+                        recursive = TRUE, full.names = TRUE)
+load(file = deResults)
+load("DEdata.RData")
+
+# Generate PDF
+pdf("MDS-plot.pdf")
+plotMDS(data.cds, labels = sample.groups)
+dev.off()
+{% endhighlight %}
+</details>
+<br />
+
+:computer: Run the newly created script named MDSplot.R
 <details>
 <summary>:key: Click to see how to do this</summary>
 {% highlight bash %}
@@ -1481,6 +1561,7 @@ view it copy it to your local disk as before.
 
 :open_mouth: Based on these results are you surprised that your DE analysis
 detected a fairly large number of significant genes?
+<br />
 
 ## MA-plot and Volcanoplot
 
@@ -1493,7 +1574,25 @@ To create an MA plot for your analysis you can run the script called
 MAplot.R from your DE folder. It will read in the results from the DE
 analysis that you did earlier and produce the plot saved as MA-plot.pdf.
 
-:computer: Run the script MAplot.R
+:Computer: Make a R script named MAplot.R
+<details>
+<summary>:key: Click to see how to do this</summary>
+{% highlight R %}
+#Load library
+library(edgeR)
+# Read in DE data
+# deResults <- list.files("~/glob/transcriptome", pattern = ".RData", recursive = TRUE, full.names = TRUE)
+load(file = "DEdata.RData")
+
+# Generate PDF
+pdf("MA-plot.pdf")
+plotSmear(lrt, de.tags = detags)
+dev.off()
+{% endhighlight %}
+</details>
+<br />
+
+:computer: Run the newly created script MAplot.R
 <details>
 <summary>:key: Click to see how to do this</summary>
 {% highlight bash %}
@@ -1552,12 +1651,13 @@ them.
 <br />
 [Jump to the top](#begin)
 
+<br />
+<br />
+
+
 
 # <a name="assembly"></a> Bonus exercise: transcriptome assembly
----
-layout: default
-title:  'RNAseq'
----
+
 
 # Transcriptome De Novo Assembly
 
