@@ -771,11 +771,19 @@ de.out <- cbind(table.annotations[idx.match, c(1,3,4,5)], lrt.table)
       
 write.table(de.out, "results_DE.txt", sep="\t", quote=F, row.names=F)
 save.image(file = "DEdata.RData") 
+
 {% endhighlight %}
+</details>
+<br />
 
-:open_mouth: Quickly consider what of the above you would have to modify
 
-:computer: **Run the scrip you just made diffExp.R script**
+:open_mouth: Quickly consider what of the above you would have to modify for your own samples
+<br />
+
+:open_mouth: Why do you think this requires so much more special considerations?
+<br />
+
+:computer: **Run the scrip you just made, eg the diffExp.R script**
 <details>
 <summary>:key: Click to see how </summary>
 {% highlight bash %}
@@ -804,6 +812,11 @@ lrwxrwxrwx 1 olga olga   68 Nov 29 16:30 tableCounts_annotations.txt -> /sw/cour
 <br />
 [Jump to the top](#begin)
 
+:open_mouth: Another possibility would be to use DEseq2 to perform the differential analysis, see <a href="https://scilifelab.github.io/courses/rnaseq/labs/DEseq2">https://scilifelab.github.io/courses/rnaseq/labs/DEseq2</a>
+<br />
+<br />
+
+
 
 # <a name="functanno"></a> Bonus exercise: from differential expression to biological knowledge
 
@@ -824,6 +837,14 @@ Follow :computer: icon for running the module on Uppmax. Follow :floppy_disk: to
 
 ## Setting-up workspace 
 
+:computer: **Start an R session** This is done by simply typing R on the uppmax command line, although I would sincerly recommend to run [RStudio](https://www.rstudio.com/) on your own computer, <b>note that this would require you to download and install it, but considering this is a bonus exercise that could still be worth it in the long run</b>
+<details>
+{% highlight bash %}
+R
+{% endhighlight %}
+</details>
+<br />
+
 :floppy_disk: **Install packages** used in the exercise. You can do it by pasting the following two commands in R session:
 <br />
  `source("http://bioconductor.org/biocLite.R")`
@@ -842,7 +863,7 @@ Follow :computer: icon for running the module on Uppmax. Follow :floppy_disk: to
 <details>
  <summary>:key: Click to see an example of a command</summary>
  {% highlight bash %}
- scp -r YOUR_LOGIN@milou.uppmax.uu.se:/sw/courses/ngsintro/rnaseq/bonus/funannot ./
+ scp -r <your_username>@milou.uppmax.uu.se:/sw/courses/ngsintro/rnaseq/bonus/funannot ./
  {% endhighlight %}
 </details>
 <br />
@@ -878,11 +899,138 @@ cd /proj/g2016035/nobackup/<username>/transcriptome/funannot
 </details>
 <br />
 
-:computer: **To perform the functional annotation** you can use a wrapper script *annotate\_de\_results.R*, which is executed as in the main exercise:
+:computer: **Install the packages** <b>This you only need to do once per computer! Go into your R session:</b>
 <details>
 <summary>:key: Click to see how</summary>
-{% highlight bash %}
-Rscript annotate_de_results.R
+{% highlight R %}
+source("https://bioconductor.org/biocLite.R")
+biocLite("goseq")
+biocLite("GO.db")
+biocLite("reactome.db")
+biocLite("org.Mm.eg.db")
+{% endhighlight %}
+</details>
+<br />
+
+:computer: **To perform the functional annotation**
+<details>
+<summary>:key: Click to see how</summary>
+{% highlight R %}
+################################################################
+## prepare paths and directories where results will be saved ###
+################################################################
+require("goseq")
+require("GO.db")
+require("reactome.db")
+require("org.Mm.eg.db")
+
+dir=getwd()
+results.dir="GO_react_results"
+results.path=file.path(dir, results.dir)
+dir.create(results.path)
+
+## read in the data table (results of differential expression analysis using edgeR, from the main workflow)
+de_res=read.table("./data/DE_allReads.txt",sep="\t", header=TRUE, stringsAsFactors=FALSE, quote="")
+
+## add gene length information to df with results
+len=read.table("./annot/mm10_gene_len.txt", sep="\t", quote="", header=TRUE)
+de_res_len=merge(de_res,len, by="ensembl_gene_id")
+
+
+################################################################################
+## get functional annotations from R db packages org.Mm.eg.db and reactome.db ##
+################################################################################
+go=as.data.frame(org.Mm.egGO2ALLEGS)
+colnames(go)=c("gene_id","category","Evidence","Ontology")
+
+react=as.data.frame(reactomeEXTID2PATHID)
+colnames(react)=c("category","gene_id")
+reactomeids=as.data.frame(reactomePATHID2NAME)
+colnames(reactomeids)=c("category","path_name")
+#the rows with category id - category name are duplicated, remove the duplicates
+reactomeids=subset(reactomeids, !duplicated(reactomeids$category))
+
+#############################
+### What will be analysed ###
+#############################
+
+## select only genes with entrez gene id
+## GO term and reactome pathway annotations are mapped to entrez gene ids
+de_res_len_go=de_res_len[complete.cases(de_res_len[,6]),]
+
+## remove lines with non-unique entrez gene id
+de_res_len_go_uniq=subset(de_res_len_go, !duplicated(de_res_len_go[,6]))
+
+## list of all genes included in the analysis
+allgenes=de_res_len_go_uniq$entrezgene
+
+## named vector with gene lengths (element names are entrez gene ids)
+genelen=de_res_len_go_uniq$transcript_length
+names(genelen)=de_res_len_go_uniq$entrezgene
+
+## named vectors of differential expression status, i.e. "1" means "gene is DE", "0" means "it is not"
+## element names are entrez gene ids
+## this vector must be the same length as genelen vector and all element names must be unique
+
+#select the downregulated genes at FDR<0.05
+dn.genes=de_res_len_go_uniq$entrezgene[(de_res_len_go_uniq$FDR<0.05 & de_res_len_go_uniq$logFC<0 )]
+#construct the named vector
+gene.vector.de.dn=as.integer(allgenes%in%dn.genes)
+names(gene.vector.de.dn)=allgenes
+
+up.genes=de_res_len_go_uniq$entrezgene[(de_res_len_go_uniq$FDR<0.05 & de_res_len_go_uniq$logFC>0 )]
+gene.vector.de.up=as.integer(allgenes%in%up.genes)
+names(gene.vector.de.up)=allgenes
+
+##################################################################################
+## calculate the gene length bias (using nullp, a function from goseq package) ###
+##################################################################################
+pwf.de.up=nullp(gene.vector.de.up, bias.data=genelen)
+pwf.de.dn=nullp(gene.vector.de.dn, bias.data=genelen)
+
+
+######################################################################################
+## get over-represented GO terms in genes up- and down-regulated in the experiment ###
+## obtain FDR by adjusting p values using Bonferroni-Hochberg method               ###
+######################################################################################
+go.up=goseq(pwf.de.up, gene2cat=go)
+go.up.adj=go.up[p.adjust(go.up$over_represented_pvalue, method="BH")<0.1,]
+
+go.dn=goseq(pwf.de.dn, gene2cat=go)
+go.dn.adj=go.dn[p.adjust(go.dn$over_represented_pvalue, method="BH")<0.1,]
+
+
+###############################################################################################
+## get over-represented reactome pathways in genes up- and down-regulated in the experiment ###
+## obtain FDR by adjusting p values using Bonferroni-Hochberg method                        ###
+###############################################################################################
+react.up=goseq(pwf.de.up, gene2cat=react)
+react.up.adj=react.up[p.adjust(react.up$over_represented_pvalue, method="BH")<0.1,]
+react.up.adj.annot=merge(react.up.adj, reactomeids, by="category", sort=F)
+
+react.dn=goseq(pwf.de.dn, gene2cat=react)
+react.dn.adj=react.dn[p.adjust(react.dn$over_represented_pvalue, method="BH")<0.1,]
+react.dn.adj.annot=merge(react.dn.adj, reactomeids, by="category", sort=F)
+
+
+#############################
+## save results as tables ###
+#############################
+go.up.file="GO_term_genes_up.txt"
+go.up.path=file.path(results.path, go.up.file)
+write.table(go.up.adj, go.up.path, col.names=TRUE, row.names=FALSE, sep="\t", quote=FALSE)
+
+go.dn.file="GO_term_genes_dn.txt"
+go.dn.path=file.path(results.path, go.dn.file)
+write.table(go.dn.adj, go.dn.path, col.names=TRUE, row.names=FALSE, sep="\t", quote=FALSE)
+
+react.up.file="reactome_pway_genes_up.txt"
+react.up.path=file.path(results.path, react.up.file)
+write.table(react.up.adj.annot, react.up.path, col.names=TRUE, row.names=FALSE, sep="\t", quote=FALSE)
+
+react.dn.file="reactome_pway_genes_dn.txt"
+react.dn.path=file.path(results.path, react.dn.file)
+write.table(react.dn.adj.annot, react.dn.path, col.names=TRUE, row.names=FALSE, sep="\t", quote=FALSE)
 {% endhighlight %}
 </details>
 <br />
