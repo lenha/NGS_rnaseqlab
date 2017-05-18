@@ -237,7 +237,7 @@ module load star/2.5.1b
 </details>  
 <br />
 
-:computer: **Build STAR index** for chromosome 11 using the downloaded reference .fasta and gene annotation .gtf files. :bulb: Check STAR manual for details
+:computer: **Build STAR index** for chromosome 11 using the downloaded reference .fasta and gene annotation .gtf files. :bulb: Check <a href="https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf">STAR manual</a> for details
 <details>
 <summary>:key: Click again to see suggested commands</summary>
 {% highlight bash %}
@@ -272,7 +272,7 @@ ln -s /sw/courses/ngsintro/rnaseq/index
 <br />
 [Jump to the top](#begin)
 
-### mapping
+### Mapping
 Now we are ready to map our reads to the reference genome, via STAR index.  
 <br />
 
@@ -286,7 +286,7 @@ mkdir /proj/g2016035/nobackup/<username>/transcriptome/star/SRR3222409
 </details>
 <br />
 
-:computer: **Map reads** to the reference genome for SRR3222409 sample. Do not forget that we are working with paired-end reads so each sample has two matching reads file. **Check** the STAR manual for the parameters to:
+:computer: **Map reads** to the reference genome for SRR3222409 sample. Do not forget that we are working with paired-end reads so each sample has two matching reads file. **Check** the <a href="https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf">STAR manual</a> for the parameters to:
 <br />
 * use index for the entire genome <br />
 * to read in zipped .fastq.gz files for both forward and reverse reads <br />
@@ -337,6 +337,9 @@ done
 <br />
 <br />
 [Jump to the top](#begin)
+<br />
+<br />
+
 
 ### <a name="samtools"></a> Samtools: converting between SAM and BAM
 Before we proceed further with our data processing, let's convert our mapped reads from STAR, saved in the default .SAM text format, into the binary .BAM format. Why? BAM files take less space so it is easier to store them and they are the most commonly required file format for many of the down-stream bioinformatics tools. In addition, they can be sorted and indexed shortening the time needed to proceed them in comparison with .SAM format. Also, then they will be ready for exploration in IGV, the Integrative Genomic Viewer.
@@ -552,7 +555,8 @@ done
 <br />
 <br />
 [Jump to the top](#begin)
-
+<br />
+<br />
 
 ### <a name="featurecounts"></a> featureCounts: counting reads
 After ensuring mapping quality we can count the reads to obtain a raw count table. We could count the reads by hand, opening the BAM in the IGV along the genome annotation file, and counting the reads overlapping with the regions of interest. This of course would take forever for the entire genome but it is never a bad idea to see how the data look like for the selected few genes of interest. For get the counts for the entire genome one can use many of the already available tools doing just that. Here we will use featureCounts, an ultrafast and accurate read summarization program, that can count mapped reads for genomic features such as genes, exons, promoter, gene bodies, genomic bins and chromosomal locations.
@@ -619,6 +623,9 @@ ll -h /proj/g2016035/nobackup/<username>/transcriptome/DE/table*
 <br />
 <br />
 [Jump to the top](#begin)
+<br />
+<br />
+
 
 ### MultiQC: combining QC measures across all the samples
 :mag: **Read** more on [MultiQC](http://multiqc.info). Can you figure out why this tool has become very popular? Can you figure out how to combine FastQC, Star, QualiMap and featureCounts results for all the samples into interactive report?
@@ -647,6 +654,9 @@ multiqc .
 <br />
 <br />
 [Jump to the top](#begin)
+<br />
+<br />
+
 
 ### <a name="descript"></a> Differential expression
 As mentioned during the lecture, the best way to perform differential expression is to use one of the statistical packages, within **R environment**, that were specifically designed for analyses of read counts arising from RNA-seq, SAGE and similar technologies. Here, we will one of such packages called [edgeR](https://bioconductor.org/packages/release/bioc/html/edgeR.html). Learning R is beyond the scope of this course so we prepared basic ready to run scripts from a command line scripts to find DE genes between Ko and Wt.
@@ -682,7 +692,90 @@ ln -s /sw/courses/ngsintro/rnaseq/main/DE/diffExp.R
 </details>
 <br />
 
-:computer: **Run diffExp.R script**
+:computer: **Write the diffExp.R script that will be run**
+<details>
+{% highlight R %}
+### R script for differential expression
+
+rm(list=ls())
+library(edgeR)
+library(methods)
+
+# Input
+file.counts <- "tableCounts"
+file.annotations <- "tableCounts_annotations.txt"
+
+# Preparing samples group labels
+sample.groups <- rep(c('KO','Wt'), each=3)
+
+# Reading in data
+data.counts <- read.delim(file.counts, skip=1)
+table.counts <- as.matrix(data.counts[,-c(1:6)])
+row.names(table.counts) <- data.counts$Geneid
+colnames(table.counts) <- gsub("_Aligned.out.sam", "", colnames(table.counts))
+table.annotations <- as.matrix(read.delim(file.annotations))
+
+#############
+### edgeR ###
+#############
+
+# building edgeR object
+data.cds <- DGEList(table.counts, group = sample.groups)
+
+# filtering low count reads (keeping rads with at least 1 read per milion in at least 2 samples)
+data.cds <- data.cds[rowSums(1e+06 * data.cds$counts/expandAsMatrix(data.cds$samples$lib.size, dim(data.cds)) > 1) >= 2, ]
+
+# normalizing data 
+data.cds <- calcNormFactors(data.cds, method='TMM')
+data.norm <- cpm(data.cds, prior.count=2, log=TRUE)
+
+# Design matrix for GLM model
+my.design <- model.matrix(~0+sample.groups)
+colnames(my.design) <- levels(data.cds$samples$group)
+    
+# estimating dispersion
+data.cds <- estimateDisp(data.cds, my.design, trend.method='movingave')
+pdf('QC_dispertionEstimates.pdf')
+plotBCV(data.cds)
+dev.off()
+  
+# defining contrasts
+my.contrasts <- makeContrasts(
+    KOvsWt=KO-Wt,
+    levels=my.design
+)
+    
+# fit
+fit <- glmFit(data.cds, my.design)
+
+##################################################################
+### Differential expression analysis for pair-wise comparisons ###
+##################################################################
+
+lrt <- glmLRT(fit, contrast=my.contrasts[,"KOvsWt"])
+lrt.top <- topTags(lrt, n=Inf, adjust.method='BH')
+lrt.table <- lrt.top$table  
+      
+de.summary <- rbind(t(summary(de <- decideTestsDGE(lrt, lfc=0))), t(summary(de <- decideTestsDGE(lrt, lfc=0.5))), t(summary(de <- decideTestsDGE(lrt, lfc=1))))
+colnames(de.summary) <- c("Down-regulated","Non-significant","Up-regulated")
+rownames(de.summary) <- c("log2FC 0.0", "log2FC 0.5", "log2FC 1.0")
+      
+idx.sign <- t(de <- decideTestsDGE(lrt, lfc=0))
+      
+de <- decideTestsDGE(lrt, lfc=0)
+detags <- rownames(data.cds)[as.logical(de)]
+      
+# DE output
+idx.match <- match(rownames(lrt.table), table.annotations[,1])
+de.out <- cbind(table.annotations[idx.match, c(1,3,4,5)], lrt.table) 
+      
+write.table(de.out, "results_DE.txt", sep="\t", quote=F, row.names=F)
+save.image(file = "DEdata.RData") 
+{% endhighlight %}
+
+:open_mouth: Quickly consider what of the above you would have to modify
+
+:computer: **Run the scrip you just made diffExp.R script**
 <details>
 <summary>:key: Click to see how </summary>
 {% highlight bash %}
