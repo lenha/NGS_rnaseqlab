@@ -21,7 +21,42 @@ As discussed during the lecture, RNA-seq experiment does not end with a list of 
    * [Exon usage](#exon) how to perform analysis of differential exon usage and study alternative splicing 
    * [Visualisation](#visual) how to view RNA-seq bam files and present DE results with graphics 
    * [_De novo_ transcriptome assembly](#assembly)  how to assembly transcriptome if no reference is present 
-  
+
+
+# Good practise
+
+Unfortunately a large part of a bioinformaticians life is to ensure you have the right files, from the right genome versions, in the right place in order to run your analysis efficiently. Therefore about the first hour of the lab will be about setting up your work area (workDir) and results directory (resDir) properly. We could have prepared this for you, but then you would not be prepared for some of the most common "challenges".
+
+## Common problems
+
+Most of the problems you will encounter in this lab is different types of typos, therefore look closely at what the error message is saying, and try to solve it.
+
+## Your work area
+
+When doing a project you should always work in the project directory, for the purpose of this lab, you should work in your home directory.
+
+{% highlight bash %}
+cd ~/
+{% endhighlight %}
+
+## Where to store results
+
+Analysis results should be stored on the nobackup
+{% highlight bash %}
+mkdir /home/<username>/nobackup/rnaseqlab
+export resDir="/home/<username>/nobackup/rnaseqlab"
+{% endhighlight %}
+
+The first command creates a place to store all your results, eg a folder called <i>rnaseqlab</i> on the nobackup area.
+
+The second command makes it easier to keep track of your paths, by asking the system to create an environmental variable (see <a href="https://en.wikipedia.org/wiki/Environment_variable">here</a> for a description if you want), this will make it easier for you to work with this lab.
+
+For those of you that will be writing a bash script instead define a parameter at the top of your script file
+{% highlight bash %}
+resDir="/home/<username>/nobackup/rnaseqlab"
+{% endhighlight %}
+Then everything else will work exactly the same as the remaining example code
+
 
 # Data description
 
@@ -48,41 +83,38 @@ Reading manuals, trying different tools/options, finding solutions to problems a
 <br />
 [Jump to the top](#begin)
 
-## Preparing a working directory
-To get going, let's book a node, create a working directory named _transcriptome_ in the _/proj/g2016035/nobackup/<username>/_ directory and link the raw sequencing files .fastq.gz. NB! Remember to replace <username> with your uppmax id throughout the exercise.
+## Preparing your working directory
+To get going, let's book a node, create a directory named <b>transcriptome</b> in your results directory and link the raw sequencing files .fastq.gz. NB! Remember to replace <username> with your uppmax id, and <courseID> with the code for the course, throughout the exercise.
 
 :computer: **Book a node.** As for other tutorials in this course we have reserved half a node per person. If you have not done it yet today book a node now as otherwise you will take away resources from your fellow course participants.
 <details>
 <summary>:key: Click to see how to book a node on Thursday</summary>
 {% highlight bash %}
-salloc -A g2016035 -t 08:00:00 -p core -n 8 --no-shell --reservation=g2016035_4 &
+salloc -A <courseID> -t 08:00:00 -p core -n 8 --no-shell --reservation=<courseID>_4 &
+
+INTERACTIVE
+
+interactive -A <courseID> -t 04:00:00 -p core -n 8
+
 {% endhighlight %} 
 </details>  
+
+
+:computer: **Create a folder** named <b>transcriptome</b>, then **Create  a sub-folder** called <b>DATA</b>.
 <details>
-<summary>:key: Click to see how to book a node on Friday</summary>
+<summary>:key: Click to see suggested commands</summary>
 {% highlight bash %}
-salloc -A g2016035 -t 08:00:00 -p core -n 8 --no-shell --reservation=g2016035_5 &
+mkdir $resDir/transcriptome
+mkdir $resDir/transcriptome/DATA
 {% endhighlight %} 
 </details>  
 <br />
 
-
-:computer: **Create a folder** named _transcriptome_ for your project in your _/proj/g2016035/nobackup/<username>_ directory. **Create  a sub-folder** called _DATA_.
+:computer: **Sym-link** the .fastq.gz files located in <b><i>/sw/courses/ngsintro/rnaseq/DATA/p25</i></b>. :bulb: A great chance to practice your bash loop skills.
 <details>
 <summary>:key: Click to see suggested commands</summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/<username>
-mkdir transcriptome
-mkdir transcriptome/DATA
-{% endhighlight %} 
-</details>  
-<br />
-
-:computer: **Sym-link** the .fastq.gz files located in _/sw/courses/ngsintro/rnaseq/DATA/p25_. :bulb: A great chance to practice your bash loop skills.
-<details>
-<summary>:key: Click to see suggested commands</summary>
-{% highlight bash %}
-cd /proj/g2016035/nobackup/transcriptome/DATA/
+cd $resDir/transcriptome/DATA
 for i in /sw/courses/ngsintro/rnaseq/DATA/p25/*
   do ln -s $i
 done
@@ -90,9 +122,11 @@ done
 </details>  
 <br />
 
+<b>What does the above command do?</b> Instead of copying the files from the course directory to your results directory it creates a <a href="https://en.wikipedia.org/wiki/Symbolic_link">symbolic link</a> to the file. You can access the file just as if it would really be in your directory but it will actually not use up any of your file quota, or UppMax storage capacity, by storing the same file in two places.
+
 :white_check_mark: **Check** if you linked the files correctly. You now should be able to see 12 links to the .fastq.gz files.
 {% highlight bash %}
-ll ~/glob/transcriptome/DATA
+ll $resDir/transcriptome/DATA
 
 SRR3222409_1.fastq.gz -> /sw/courses/ngsintro/rnaseq/DATA/p25/SRR3222409_1.fastq.gz
 SRR3222409_2.fastq.gz -> /sw/courses/ngsintro/rnaseq/DATA/p25/SRR3222409_2.fastq.gz
@@ -103,24 +137,24 @@ SRR3222414_2.fastq.gz -> /sw/courses/ngsintro/rnaseq/DATA/p25/SRR3222414_2.fastq
 <br />
 [Jump to the top](#begin)
 
+
 ## <a name="fastqc"></a> FastQC: quality check of the raw sequencing reads
 After receiving raw reads from a high throughput sequencing centre it is essential to check their quality. Why waste your time on data analyses of the poor quality data? FastQC provide a simple way to do some quality control check on raw sequence data. It provides a modular set of analyses which you can use to get a quick impression of whether your data has any problems of which you should be aware before doing any further analysis.
 
 :mag: **Read** more on [FastQC](http://www.bioinformatics.babraham.ac.uk/projects/fastqc/). Can you figure out how to run it on Uppmax?  
 <br />
 
-:computer: **Create** _fastqc_ folder in your _transcriptome_ directory. **Navigate to _fastqc_ folder**.
+:computer: **Create** a <i>fastqc</i> folder in your <i>transcriptome</i> directory. **Navigate to fastqc folder**.
 <details>
 <summary>:key: Click to see suggested commands</summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/transcriptome
-mkdir fastqc
-cd fastqc
+mkdir $resDir/fastqc
+cd $resDir/fastqc
 {% endhighlight %} 
 </details>  
 <br />
 
-:computer: **Load** _bioinfo-tools_ and _FastQC_ modules
+:computer: **Load** bioinfo-tools and FastQC modules
 <details>
 <summary>:key: Click to see suggested commands</summary>
 {% highlight bash %} 
@@ -130,13 +164,13 @@ module load FastQC/0.11.5
 </details>  
 <br />
 
-:computer: **Run** FastQC on all the .fastq.gz files located in the _transcriptome/DATA_. **Direct the output** to the  _fastqc_ folder. :bulb: Check the FastQC option for input and output files. :bulb: The bash loop comes handy again.
+:computer: **Run** FastQC on all the .fastq.gz files located in the <i>transcriptome/DATA</i>. **Direct the output** to the  <i>fastqc</i> folder. :bulb: Check the FastQC option for input and output files. :bulb: The bash loop comes handy again.
 <details>
 <summary>:key: Click to see suggested commands</summary>
 {% highlight bash %}
-for i in /proj/g2016035/nobackup/<username>/transcriptome/DATA/* 
+for i in $resDir/transcriptome/DATA/* 
 do 
-  fastqc $i -o /proj/g2016035/nobackup/<username>/transcriptome/fastqc/ 
+  fastqc $i -o $resDir/transcriptome/fastqc/ 
 done
 {% endhighlight %}
 </details>  
@@ -165,11 +199,11 @@ It is best if the reference genome (.fasta) and annotation (.gtf) files come fro
 :open_mouth: What is the idea behind building STAR index? What files are needed to build one? Where do we take them from? Could one use a STAR index that was generated before?  
 <br />
 
-:computer: **Create** the _reference_ sub-folder in _transcriptome_ directory
+:computer: **Create** the <i>reference</i> sub-folder in the <i>transcriptome</i> directory
 <details>
 <summary>:key: Click to see how to create the directory </summary>
 {% highlight bash %}
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/reference
+mkdir $resDir/transcriptome/reference
 {% endhighlight %}
 </details>  
 <br />
@@ -186,10 +220,11 @@ Mus_musculus.GRCm38.dna.chromosome.11.fa
 Mus_musculus.GRCm38.85.gtf
 {% endhighlight %}
 </details>
+<br />
 <details>
 <summary>:key: Click to see how to transfer files from Ensembl website to Uppmax </summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/transcriptome/reference
+cd $resDir/transcriptome/reference
 wget ftp://ftp.ensembl.org/pub/release-85/fasta/mus_musculus/dna/Mus_musculus.GRCm38.dna.chromosome.11.fa.gz
 wget ftp://ftp.ensembl.org/pub/release-85/gtf/mus_musculus/Mus_musculus.GRCm38.85.gtf.gz
 {% endhighlight %}
@@ -208,7 +243,7 @@ gzip -d *gz
 
 :white_check_mark: You should now have *Mus\_musculus.GRCm38.dna.chromosome.11.fa* and *Mus\_musculus.GRCm38.85.gtf* in the sub-folder _reference_  
 {% highlight bash %}
-ll -h /proj/g2016035/nobackup/<username>/transcriptome/reference/
+ll -h $resDir/transcriptome/reference/
 -r--r--r-- 1 olga olga 867699172 Sep 14 15:33 Mus_musculus.GRCm38.81.gtf
 -rw-rw-r-- 1 olga olga 124117311 Sep 14 15:42 Mus_musculus.GRCm38.dna.chromosome.11.fa
 {% endhighlight %}
@@ -218,21 +253,22 @@ ll -h /proj/g2016035/nobackup/<username>/transcriptome/reference/
 
 ### preparing index
 
-:computer: **Create _indexChr11_ sub-folder** in the _transcriptome_ directory
+:computer: **Create <i>indexChr11</i> sub-folder** in the <i>transcriptome</i> directory
 <details>
 <summary>:key: Click to see how to create directory</summary>
 {% highlight bash %}
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/indexChr11
-cd /proj/g2016035/nobackup/<username>/transcriptome/indexChr11
+mkdir $resDir/transcriptome/indexChr11
+cd $resDir/transcriptome/indexChr11
 {% endhighlight %}
 </details>  
 <br />
 
-:computer: **Load STAR module** on Uppmax. :bulb: Use _module spider star_ to check which version of STAR are available and load the latest one.
+:computer: **Load STAR module** on Uppmax. :bulb: Use <i>module spider star</i> to check which version of STAR are available and load the latest one.
 <details>
 <summary>:key: Click to see how to load module</summary>
 {% highlight bash %}
-module load star/2.5.1b
+module spider star
+module load star/x.x.x
 {% endhighlight %}
 </details>  
 <br />
@@ -241,14 +277,14 @@ module load star/2.5.1b
 <details>
 <summary>:key: Click again to see suggested commands</summary>
 {% highlight bash %}
-star --runMode genomeGenerate --runThreadN 8 --genomeDir /proj/g2016035/nobackup/<username>/transcriptome/indexChr11 --genomeFastaFiles /proj/g2016035/nobackup/<username>/transcriptome/reference/Mus_musculus.GRCm38.dna.chromosome.11.fa --sjdbGTFfile /proj/g2016035/nobackup/<username>/transcriptome/reference/Mus_musculus.GRCm38.85.gtf
+star --runMode genomeGenerate --runThreadN 8 --genomeDir $resDir/transcriptome/indexChr11 --genomeFastaFiles $resDir/transcriptome/reference/Mus_musculus.GRCm38.dna.chromosome.11.fa --sjdbGTFfile $resDir/transcriptome/reference/Mus_musculus.GRCm38.85.gtf
 {% endhighlight %}
 </details>
 <br />
 
-:white_check_mark: Check if building the index worked
+:white_check_mark: Check if building the index worked, you should at the very least have the below files
 {% highlight bash %}
-ll -h /proj/g2016035/nobackup/<username>/transcriptome/indexChr11
+ll -h $resDir/transcriptome/indexChr11
 -rw-rw-r-- 1 olga olga   10 Sep 14 15:53 chrLength.txt
 -rw-rw-r-- 1 olga olga   13 Sep 14 15:53 chrNameLength.txt
 -rw-rw-r-- 1 olga olga    3 Sep 14 15:53 chrName.txt
@@ -260,11 +296,11 @@ drwx------ 2 olga olga 4.0K Sep 14 15:53 _STARtmp
 {% endhighlight %}
 <br />
 
-:computer: **Sym-link STAR index** to for the entire genome into the _transcriptome_ directory. The index for the whole genome was prepared for us before class in the very same way as for the chromosome 11 in steps above. It just requires more time (ca. 4h) to run. The index can be found here: */sw/courses/ngsintro/rnaseq/index*
+:computer: **Sym-link STAR index** to for the entire genome into the <i>transcriptome</i> directory. The index for the whole genome was prepared for us before class in the very same way as for the chromosome 11 in steps above. It just requires more time (ca. 4h) to run. The index can be found here: <b><i>/sw/courses/ngsintro/rnaseq/index</i></b>
 <details>
 <summary>:key: Click again to see how to link the index</summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/transcriptome/
+cd $resDir/transcriptome/
 ln -s /sw/courses/ngsintro/rnaseq/index
 {% endhighlight %}
 </details>
@@ -276,12 +312,12 @@ ln -s /sw/courses/ngsintro/rnaseq/index
 Now we are ready to map our reads to the reference genome, via STAR index.  
 <br />
 
-:computer: **Create _star_ sub-folder** in the _transcriptome_ directory. **Create sub-sub-folder named _SRR3222409_** to save the mapping results for the sample SRR3222409.
+:computer: **Create _star_ sub-folder** in the <i>transcriptome</i> directory. **Create sub-sub-folder named <i>SRR3222409</i>** to save the mapping results for the sample SRR3222409.
 <details>
 <summary>:key: Click to see how to create folders </summary>
 {% highlight bash %}
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/star
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/star/SRR3222409
+mkdir $resDir>/transcriptome/star
+mkdir $resDir/transcriptome/star/SRR3222409
 {% endhighlight %}
 </details>
 <br />
@@ -297,14 +333,16 @@ mkdir /proj/g2016035/nobackup/<username>/transcriptome/star/SRR3222409
 <details>
  <summary>:key: Click to see how to write the mapping command with the above parameters</summary>
  {% highlight bash %}
- star --genomeDir /proj/g2016035/nobackup/<username>/transcriptome/index/complete --readFilesIn /proj/g2016035/nobackup/<username>/transcriptome/DATA/SRR3222409_1.fastq.gz /proj/g2016035/nobackup/<username>/transcriptome/DATA/SRR3222409_2.fastq.gz --runThreadN 8 --readFilesCommand zcat --outFileNamePrefix /proj/g2016035/nobackup/<username>/transcriptome/star/SRR3222409/SRR3222409_
+mkdir $resDir/transcriptome/star
+mkdir $resDir/transcriptome/star/SRR3222409
+star --genomeDir $resDir/transcriptome/index/complete --readFilesIn $resDir/transcriptome/DATA/SRR3222409_1.fastq.gz $resDir/transcriptome/DATA/SRR3222409_2.fastq.gz --runThreadN 8 --readFilesCommand zcat --outFileNamePrefix $resDir/transcriptome/star/SRR3222409/SRR3222409_
  {% endhighlight %}
  </details>
 <br />
 
-:white_check_mark: You should now have .sam file in the _SRR3222409_ as well as a series of log files. Have a look how the mapping went.
+:white_check_mark: You should now have .sam file in the <i>$resDir/transcriptome/star/SRR3222409</i> folder as well as a series of log files. Have a look how the mapping went.
 {% highlight bash %}
-ll -h ~/transcriptome/star/SRR3222409
+ll -h $resDir/transcriptome/star/SRR3222409
 
 total 3.0G
 -rw-rw-r-- 1 olga olga 3.0G Sep 14 16:05 SRR3222409_Aligned.out.sam
@@ -317,23 +355,9 @@ drwx------ 2 olga olga 4.0K Sep 14 16:04 SRR3222409__STARtmp
 <br/>
 <br/>
 
-:computer: **Map or copy over**. Map the remaining samples in the analogous way. Running short of time? Copy over the results that we have prepared for you before the class. They are here: */sw/courses/ngsintro/rnaseq\_2016/main/Star*
-<details>
-<summary>:key: Click to see how to copy results, sample by sample</summary>
-{% highlight bash %}
-cp -r /sw/courses/ngsintro/rnaseq/main/star/SRR3222410/ /proj/g2016035/nobackup/<username>/transcriptome/star/
-{% endhighlight %}
-</details>
+:computer: **Map or copy over**. Map the remaining samples in the analogous way.
 
-<details>
-<summary>:key: Click to see how to copy results using bash loop</summary>
-{% highlight bash %}
-for i in SRR3222411 SRR3222412 SRR3222413 SRR3222414
-do
-  cp -r /sw/courses/ngsintro/rnaseq/main/star/$i /proj/g2016035/nobackup/<username>/transcriptome/star/
-done
-{% endhighlight %}
-</details>
+Hint if you write a bash look, then please note that the underscore (for example before the 1 and 2 to define the forward and reverse strand) will be understood as part of the parameter!
 <br />
 <br />
 [Jump to the top](#begin)
@@ -354,9 +378,10 @@ Before we proceed further with our data processing, let's convert our mapped rea
 <details>
 <summary>:key: Click to see the suggested commands, file by file</summary>
 {% highlight bash %}
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/bams
-cd /proj/g2016035/nobackup/<username>/transcriptome/bams 
-module load samtools/1.3
+mkdir $resDir/transcriptome/bams
+cd $resDir/transcriptome/bams 
+module spider samtools
+module load samtools/x.x
 {% endhighlight %}
 </details>
 <br />
@@ -366,13 +391,13 @@ module load samtools/1.3
 <details>
 <summary>:key: Click to see the suggested commands, sample by sample</summary>
 {% highlight bash %}
-ln -s /proj/g2016035/nobackup/<username>/transcriptome/star/SRR3222409/SRR3222409_Aligned.out.sam
+ln -s $resDir/transcriptome/star/SRR3222409/SRR3222409_Aligned.out.sam
 {% endhighlight %}
 </details>
 <details>
 <summary>:key: Click to see the suggested commands, using bash loop</summary>
 {% highlight bash %}
-for i in /proj/g2016035/nobackup/<username>/transcriptome/star/**/*.sam 
+for i in $resDir/transcriptome/star/**/*.sam 
   do ln -s $i
 done
 {% endhighlight %}
@@ -381,7 +406,7 @@ done
 
 :white_check_mark: Check to see the linked files
 {% highlight bash %}
-ll -h  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.sam
+ll -h  $resDir/transcriptome/bams/*.sam
 
 lrwxrwxrwx 1 olga olga 72 Sep 14 16:39 SRR3222409_Aligned.out.sam -> /home/olga/glob/transcriptome/star/SRR3222409/SRR3222409_Aligned.out.sam
 lrwxrwxrwx 1 olga olga 72 Sep 14 16:39 SRR3222410_Aligned.out.sam -> /home/olga/glob/transcriptome/star/SRR3222410/SRR3222410_Aligned.out.sam
@@ -390,35 +415,22 @@ lrwxrwxrwx 1 olga olga 72 Sep 14 16:39 SRR3222414_Aligned.out.sam -> /home/olga/
 {% endhighlight %}
 <br/>
 
-:computer: **Convert SAM to BAM**: for the first sample *SRR3222409\_Aligned.out.sam* into *SRR3222409\_Aligned.out.bam*
+:computer: **Convert SAM to BAM**: for the first sample <i>SRR3222409\_Aligned.out.sam</i> into <i>SRR3222409\_Aligned.out.bam</i>
 <details>
 <summary>:key: Click to see the suggested commands</summary>
 {% highlight bash %}
+cd $resDir/transcriptome/bams/
 samtools view -bS -o SRR3222409_Aligned.out.bam SRR3222409_Aligned.out.sam
 {% endhighlight %}
 </details>
 <br />
 
-:computer: **Convert SAM to BAM** for the remaining samples or **copy them over**. You can find the BAMs prepared for your in */sw/courses/ngsintro/rnaseq/main/bams/out*
-<details>
-<summary>:key: Click to see how to copy over sample by sample</summary>
-{% highlight bash %}
-cp /sw/courses/ngsintro/rnaseq/main/bams/out/SRR3222410_Aligned.out.bam /proj/g2016035/nobackup/<username>/transcriptome/bams/
-{% endhighlight %}
-</details>
-<details>
-<summary>:key: Click to see how to copy over using a bit more advanced bash loop</summary>
-{% highlight bash %}
-for i in SRR3222411 SRR3222412 SRR3222413 SRR3222414
-  do cp "/sw/courses/ngsintro/rnaseq/main/bams/out/"$i"_Aligned.out.bam" /proj/g2016035/nobackup/<username>/transcriptome/bams/ 
-done
-{% endhighlight %}
-</details>
+:computer: **Convert SAM to BAM** for the remaining samples
 <br />
 
 :white_check_mark: Check to see the converted BAM files
 {% highlight bash %}
-ll -h  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.bam
+ll -h  $resDir/transcriptome/bams/*.bam
 
 -rw-rw-r-- 1 olga olga 792M Sep 14 16:46 SRR3222409_Aligned.out.bam
 -rw-rw-r-- 1 olga olga 596M Sep 14 16:51 SRR3222410_Aligned.out.bam
@@ -427,35 +439,22 @@ ll -h  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.bam
 {% endhighlight %}
 <br/>
 
-:computer: **Sort BAM file** sort *SRR3222409\_Aligned.out.bam* file and save it as *SRR3222409\_Aligned.out.sorted.bam* in the *bams* sub-folder
+In general here is where you would <b>remove your SAM files to save space</b>, but DO NOT DO THIS today, the featureCount we use later requires samfiles as input. If you have removed you <i>sam</i> files when you get to that part, then use <i>samtools view *bam</i>to get them back/pipe it directly to most bioinformatics software.
+
+:computer: **Sort BAM file** sort <i>SRR3222409\_Aligned.out.bam</i> file and save it as <i>SRR3222409\_Aligned.out.sorted.bam</i> in the <i>bams</i> sub-folder
 <details>
 <summary>:key: Click to see how to sort BAM file</summary>
 {% highlight bash %}
-samtools sort -o /proj/g2016035/nobackup/<username>/transcriptome/bams/SRR3222409_Aligned.out.sorted.bam -T sort_temp /proj/g2016035/nobackup/<username>/transcriptome/bams/SRR3222409_Aligned.out.bam
+samtools sort -o $resDir/transcriptome/bams/SRR3222409_Aligned.out.sorted.bam -T sort_temp $resDir/transcriptome/bams/SRR3222409_Aligned.out.bam
 {% endhighlight %}
 </details>
 <br />
 
-:computer: **Sort BAM files** for the remaining samples or **copy them over**. You can find the BAMs prepared for your in */sw/courses/ngsintro/rnaseq/main/bams/out*, ending with *sorted.bam*
-<details>
-<summary>:key: Click to see how to copy over sample by sample</summary>
-{% highlight bash %}
-cp /sw/courses/ngsintro/rnaseq/main/bams/out/SRR3222410_Aligned.out.sorted.bam /proj/g2016035/nobackup/<username>/transcriptome/bams/
-{% endhighlight %}
-</details>
-<details>
-<summary>:key: Click to see how to copy over using a bit more advanced bash loop. It is the same as above, just the file extension is different. </summary>
-{% highlight bash %}
-for i in SRR3222411 SRR3222412 SRR3222413 SRR3222414 
-  do cp "/sw/courses/ngsintro/rnaseq/main/bams/out/"$i"_Aligned.out.sorted.bam" /proj/g2016035/nobackup/<username>/transcriptome/bams/
-done
-{% endhighlight %}
-</details>
-<br />
+:computer: **Sort BAM files** for the remaining samples 
 
 :white_check_mark: Check to see the sorted BAM files
 {% highlight bash %}
-ll -h  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.sorted.bam
+ll -h  $resDir/<username>/transcriptome/bams/*.sorted.bam
 
 -rw-rw-r-- 1 olga olga 492M Sep 14 16:59 SRR3222409_Aligned.out.sorted.bam
 -rw-rw-r-- 1 olga olga 375M Sep 14 17:01 SRR3222410_Aligned.out.sorted.bam
@@ -468,13 +467,13 @@ ll -h  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.sorted.bam
 <details>
 <summary>:key: Click to see how to index BAM file, sample by sample</summary>
 {% highlight bash %}
-samtools index /proj/g2016035/nobackup/<username>/transcriptome/bams/SRR3222410_Aligned.out.sorted.bam
+samtools index $resDir/transcriptome/bams/SRR3222410_Aligned.out.sorted.bam
 {% endhighlight %}
 </details>
 <details>
 <summary>:key: Click to see how to index BAM file, using bash loop</summary>
 {% highlight bash %}
-for i in  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.sorted.bam
+for i in  $resDir/transcriptome/bams/*.sorted.bam
   do samtools index $i
 done
 {% endhighlight %}
@@ -483,7 +482,7 @@ done
 
 :white_check_mark: Check to see the BAM indexes
 {% highlight bash %}
-ll -h  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.bai
+ll -h  $resDir/transcriptome/bams/*.bai
 
 -rw-rw-r-- 1 olga olga 2.7M Sep 14 17:06 SRR3222409_Aligned.out.sorted.bam.bai
 -rw-rw-r-- 1 olga olga 2.7M Sep 14 17:06 SRR3222410_Aligned.out.sorted.bam.bai
@@ -494,35 +493,37 @@ ll -h  /proj/g2016035/nobackup/<username>/transcriptome/bams/*.bai
 <br />
 [Jump to the top](#begin)
 
+
 ### <a name="qualimap"></a> QualiMap: post-alignment quality control
 Some important quality aspects, such as saturation of sequencing depth, read distribution between different genomic features or coverage uniformity along transcripts, can be measured only after mapping reads to the reference genome. One of the tools to perform this post-alignment quality control is QualiMap. QualiMap examines sequencing alignment data in SAM/BAM files according to the features of the mapped reads and provides an overall view of the data that helps to the detect biases in the sequencing and/or mapping of the data and eases decision-making for further analysis.
 
 :mag: **Read** through [QuliMap](http://qualimap.bioinfo.cipf.es/doc_html/intro.html) documentation and see if you can figure it out how to run it to assess post-alignment quality on the RNA-seq mapped samples. The tool is already installed on Uppmax and available as QuliMap module  
 <br />
 
-:computer: **Create QualiMap** sub-folder in _transcriptome_ directory, **navigate to _qualimap_ sub-folder** and **load QualiMap/2.2 module**
+:computer: **Create QualiMap** sub-folder in <i>transcriptome</i> directory, **navigate to <i>qualimap</i> sub-folder** and **load QualiMap/2.2 module**
 <details>
 <summary>:key: Click to see the suggested commands</summary>
 {% highlight bash %}
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/qualimap 
-cd /proj/g2016035/nobackup/<username>/transcriptome/qualimap/
-module load QualiMap/2.2
+mkdir $resDir/transcriptome/qualimap 
+cd $resDir/transcriptome/qualimap/
+module spider QualiMap
+module load QualiMap/x.x
 {% endhighlight %}
 </details>
 <br />
 
-:computer: **Run QualiMap** for the fist sample on sorted BAM file *SRR3222409\_Aligned.out.sorted.bam* **directing** the results to */proj/g2016035/nobackup/<username>/transcriptome/qualimap/SRR3222409* folder. :bulb: QualiMap creates the folder if you specify the right parameter
+:computer: **Run QualiMap** for the fist sample on sorted BAM file <i>SRR3222409\_Aligned.out.sorted.bam</i> **directing** the results to <i>$resDir/transcriptome/qualimap/SRR3222409</i> folder. :bulb: QualiMap creates the folder if you specify the right parameter
 <details>
 <summary>:key: Click to see the suggested commands</summary>
 {% highlight bash %}
-qualimap rnaseq -pe -bam /proj/g2016035/nobackup/<username>/transcriptome/bams/SRR3222409_Aligned.out.sorted.bam -gtf /proj/g2016035/nobackup/<username>/transcriptome/reference/Mus_musculus.GRCm38.85.gtf --outdir /proj/g2016035/nobackup/<username>/transcriptome/qualimap/SRR3222409 --java-mem-size=63G > /dev/null 2>&1
+qualimap rnaseq -pe -bam $resDir/transcriptome/bams/SRR3222409_Aligned.out.sorted.bam -gtf $resDir/transcriptome/reference/Mus_musculus.GRCm38.85.gtf --outdir $resDir/transcriptome/qualimap/SRR3222409 --java-mem-size=63G > /dev/null 2>&1
 {% endhighlight %}
 </details>
 <br />
 
 :white_check_mark: Check if the QualiMap run correctly
 {% highlight bash %}
-ll -h /proj/g2016035/nobackup/<username>/transcriptome/qualimap/SRR3222409/
+ll -h $resDir/transcriptome/qualimap/SRR3222409/
 
 total 28K
 drwxrwxr-x 2 olga olga 4.0K Sep 14 17:24 css
@@ -534,18 +535,18 @@ drwxrwxr-x 2 olga olga 4.0K Sep 14 17:24 raw_data_qualimapReport
 <br/>
 
 
-:computer: **Run QualiMap** for the remaining sorted BAM files or **copy the results over**. These can be found */sw/courses/ngsintro/rnaseq\_2016/main/qualimap*
+:computer: **Run QualiMap** for the remaining sorted BAM files or **copy the results over**. These can be found <i>/sw/courses/ngsintro/rnaseq\_2016/main/qualimap</i>
 <details>
 <summary>:key: Click to see how to copy over the results, sample by sample</summary>
 {% highlight bash %}
-cp -r /sw/courses/ngsintro/rnaseq/main/qualimap/SRR3222410 /proj/g2016035/nobackup/<username>/transcriptome/qualimap/
+cp -r /sw/courses/ngsintro/rnaseq/main/qualimap/SRR3222410 $resDir/transcriptome/qualimap/
 {% endhighlight %}
 </details>
 <details>
 <summary>:key: Click to see how to copy over the results, using bash loop</summary>
 {% highlight bash %}
 for i in SRR3222409 SRR3222410 SRR3222411 SRR3222412 SRR3222413 SRR3222414
-  do cp -r "/sw/courses/ngsintro/rnaseq/main/qualimap"/$i /proj/g2016035/nobackup/<username>/transcriptome/qualimap/
+  do cp -r "/sw/courses/ngsintro/rnaseq/main/qualimap"/$i $resDir/transcriptome/qualimap/
 done
 {% endhighlight %}
 </details>
@@ -558,42 +559,44 @@ done
 <br />
 <br />
 
+
 ### <a name="featurecounts"></a> featureCounts: counting reads
 After ensuring mapping quality we can count the reads to obtain a raw count table. We could count the reads by hand, opening the BAM in the IGV along the genome annotation file, and counting the reads overlapping with the regions of interest. This of course would take forever for the entire genome but it is never a bad idea to see how the data look like for the selected few genes of interest. For get the counts for the entire genome one can use many of the already available tools doing just that. Here we will use featureCounts, an ultrafast and accurate read summarization program, that can count mapped reads for genomic features such as genes, exons, promoter, gene bodies, genomic bins and chromosomal locations.
 
 :mag: **Read** [featureCounts](http://bioinf.wehi.edu.au/featureCounts/) documentation and see if you can figure it out how to run summarize paired-end reads and count fragments overlapping with exonic regions.  
 <br />
 
-:computer: **Create featurecounts** sub-folder in the _transcriptome_ directory and **navigate** there.
+:computer: **Create featurecounts** sub-folder in the <i>transcriptome</i> directory and **navigate** there.
 <details>
 <summary>:key: Click to see how...</summary>
 {% highlight bash %}
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/featurecounts
-cd /proj/g2016035/nobackup/<username>/transcriptome/featurecounts
+mkdir $resDir/transcriptome/featurecounts
+cd $resDir/transcriptome/featurecounts
 {% endhighlight %}
 </details>
 <br />
 
-:computer: **Load featureCounts** module. :bulb: featureCounts is available on Uppmax as part of the _subread_ package
+:computer: **Load featureCounts** module. :bulb: featureCounts is available on Uppmax as part of the <i>subread</i> package
 <details>
 <summary>:key: Click to see how to load featureCounts</summary>
 {% highlight bash %}
-module load subread
+module spider subread
+module load subread/x.x
 {% endhighlight %}
 </details>
 <br />
 
-:computer: **Sym-link** SAM files generated by Star and located in */proj/g2016035/nobackup/<username>/transcriptome/star*
+:computer: **Sym-link** SAM files generated by Star and located in <i>$resDir/transcriptome/star</i>
 <details>
 <summary>:key: Click to see sym-link files, sample by sample</summary>
 {% highlight bash %}
-ln -s /proj/g2016035/nobackup/<username>/transcriptome/star/SRR3222409/SRR3222409_Aligned.out.sam
+ln -s $resDir/transcriptome/star/SRR3222409/SRR3222409_Aligned.out.sam
 {% endhighlight %}
 </details>
 <details>
 <summary>:key: Click to see sym-link files, using bash loop</summary>
 {% highlight bash %}
-for i in /proj/g2016035/nobackup/<username>/transcriptome/star/**/*.sam
+for i in $resDir/transcriptome/star/**/*.sam
 do 
   ln -s $i
 done
@@ -601,18 +604,18 @@ done
 </details>
 <br />
 
-:computer: **Run featureCounts** on the SAM files, **counting** fragments overlapping exon regions and **saving** the count tables as _tableCounts_. :bulb: The libraries are un-stranded and you can proceed all the samples in one go.
+:computer: **Run featureCounts** on the SAM files, **counting** fragments overlapping exon regions and **saving** the count tables as <i>tableCounts</i>. :bulb: The libraries are un-stranded and you can proceed all the samples in one go.
 <details>
 <summary>:key: Click to see how to run featureCounts on all samples</summary>
 {% highlight bash %}
-featureCounts -p -a /proj/g2016035/nobackup/<username>/transcriptome/reference/Mus_musculus.GRCm38.85.gtf -t gene -g gene_id -s 0 -o tableCounts *.sam
+featureCounts -p -a $resDir/transcriptome/reference/Mus_musculus.GRCm38.85.gtf -t gene -g gene_id -s 0 -o tableCounts *.sam
 {% endhighlight %}
 </details>
 <br />
 
 :white_check_mark: Check if featureCounts run. You should have two files now:
 {% highlight bash %}
-ll -h /proj/g2016035/nobackup/<username>/transcriptome/DE/table*
+ll -h $resDir/transcriptome/featurecounts/table*
 
 -rw-rw-r-- 1 olga olga 2.8M Sep 15 11:05 tableCounts
 -rw-rw-r-- 1 olga olga  658 Sep 15 11:05 tableCounts.summary
@@ -635,8 +638,9 @@ ll -h /proj/g2016035/nobackup/<username>/transcriptome/DE/table*
 <details>
 <summary>:key: Click to see how </summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/transcriptome
-module load MultiQC/0.6
+cd $resDir/transcriptome
+module spider MultiQC
+module load MultiQC/x.x
 {% endhighlight %}
 </details>
 <br />
@@ -650,7 +654,7 @@ multiqc .
 </details>
 <br />
 
-:open_mouth: **Transfer** the MultiQC report to your computer and have a look at it.  What can you notice?
+:open_mouth: **Transfer** the MultiQC report to your computer and have a look at it.What can you notice?
 <br />
 <br />
 [Jump to the top](#begin)
@@ -661,22 +665,23 @@ multiqc .
 ### <a name="descript"></a> Differential expression
 As mentioned during the lecture, the best way to perform differential expression is to use one of the statistical packages, within **R environment**, that were specifically designed for analyses of read counts arising from RNA-seq, SAGE and similar technologies. Here, we will one of such packages called [edgeR](https://bioconductor.org/packages/release/bioc/html/edgeR.html). Learning R is beyond the scope of this course so we prepared basic ready to run scripts from a command line scripts to find DE genes between Ko and Wt.
 
-:computer: **Create** _DE_ sub-folder in the _transcriptome_ directory and **navigate** there
+:computer: **Create** <i>DE</i> sub-folder in the <i>transcriptome</i> directory and **navigate** there
 <details>
 <summary>:key: Click to see how </summary>
 {% highlight bash %}
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/DE 
-cd /proj/g2016035/nobackup/<username>/transcriptome/DE
+mkdir $resDir/transcriptome/DE 
+cd $resDir/transcriptome/DE
 {% endhighlight %}
 </details>
 <br />
 
-:computer: **Load R module and R packages**
+:computer: **Load R module and R packages**. Match the R and R_package versions
 <details>
 <summary>:key: Click to see how </summary>
 {% highlight bash %}
-module load R/3.3.0
-module load R_packages/3.3.0
+module spider R
+module load R/x.y.z
+module load R_packages/x.y.z
 {% endhighlight %}
 </details>
 <br />
@@ -685,7 +690,7 @@ module load R_packages/3.3.0
 <details>
 <summary>:key: Click to see how </summary>
 {% highlight bash %}
-ln -s /proj/g2016035/nobackup/<username>/transcriptome/featurecounts/tableCounts
+ln -s $resDir/transcriptome/featurecounts/tableCounts
 ln -s /sw/courses/ngsintro/rnaseq/main/DE/tableCounts_annotations.txt
 ln -s /sw/courses/ngsintro/rnaseq/main/DE/diffExp.R
 {% endhighlight %}
@@ -795,7 +800,7 @@ R CMD BATCH diffExp.R
 
 :white_check_mark: A file *results\_DE.txt* should be created in the _DE_ sub-folder  
 {% highlight bash %}
-ll -h /proj/g2016035/nobackup/<username>/transcriptome/DE
+ll -h $resDir/transcriptome/DE
 
 -rw-rw-r-- 1 olga olga 8.9M Nov 29 16:31 DEdata.RData
 lrwxrwxrwx 1 olga olga   50 Nov 29 16:30 diffExp.R -> /sw/courses/ngsintro/rnaseq/main/DE/diffExp.R
@@ -872,7 +877,7 @@ R
 <details>
 <summary>:key: Click to see an example of a command</summary>
 {% highlight bash %}
-cp -r /sw/courses/ngsintro/rnaseq/bonus/funannot/ /proj/g2016035/nobackup/<username>/transcriptome/
+cp -r /sw/courses/ngsintro/rnaseq/bonus/funannot/ /$resDir/transcriptome/
 {% endhighlight %}
 </details>
 <br />
@@ -894,7 +899,7 @@ cp -r /sw/courses/ngsintro/rnaseq/bonus/funannot/ /proj/g2016035/nobackup/<usern
 <details>
 <summary>:key: Click to see how</summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/transcriptome/funannot
+cd $resDir/transcriptome/funannot
 {% endhighlight %}
 </details>
 <br />
@@ -1135,7 +1140,7 @@ Libraries to install and load if exercise is performed locally
 <details>
 <summary>:key: Click to see an example of a command</summary>
 {% highlight bash %}
-cp -r /sw/courses/ngsintro/rnaseq/bonus/exon /proj/g2016035/nobackup/<username>/transcriptome
+cp -r /sw/courses/ngsintro/rnaseq/bonus/exon $resDir/<username>/transcriptome
 {% endhighlight %}
 </details>
 <br />
@@ -1166,7 +1171,7 @@ scp -r YOUR_LOGIN@milou.uppmax.uu.se:/sw/courses/ngsintro/rnaseq/bonus/exon ./
 <details>
 <summary>:key: Click to see how</summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/transcriptome/exon
+cd $resDir/transcriptome/exon
 {% endhighlight %}
 </details>
 <br />
@@ -1279,7 +1284,7 @@ have to get a copy of the program.
 <details>
 <summary>:key: Click to see how to transfer files from Uppmax</summary>
 {% highlight bash %}
-scp username@milou.uppmax.uu.se:/proj/g2016035/nobackup/<username>/transcriptome/bamfile.bam .
+scp username@milou.uppmax.uu.se:<the path to your results directory goes here>/transcriptome/bamfile.bam .
 {% endhighlight %}
 NB! Use the sorted bam files and also copy over the .bai files
 </details>
@@ -1406,7 +1411,7 @@ Start by copying the scripts from the course folder to your DE directory.
 <details>
 <summary>:key: Click to see how to copy the files to your DE folder</summary>
 {% highlight bash %}
-cd /proj/g2016035/nobackup/<username>/transcriptome/DE
+cd $resDir/transcriptome/DE
 cp /sw/courses/ngsintro/rnaseq/bonus/visual/*.R .
 {% endhighlight %}
 </details>
@@ -1422,6 +1427,8 @@ the Ensembl to identify genomic coordinates and chromosome location
 for this gene.
 
 :computer: Make a script named genePlot.R
+<details>
+<summary>:key: Click for the code to copy into the new file</summary>
 {% highlight R %}
 .libPaths(c("/sw/courses/ngsintro/rnaseq_2016/R-packages/3.3.0", "/pica/sw/apps/R_packages/3.3.0/milou", "/pica/sw/apps/R/x86_64/3.3.0/milou/lib64/R/library"))
 
@@ -1469,6 +1476,7 @@ pdf("Sashimi.pdf", width = width, height = height)
 plotTracks(toPlot, type = c("sashimi"))
 dev.off()
 {% endhighlight %}
+</details>
 
 :computer: Run the newly created script
 {% highlight bash %}
@@ -1491,7 +1499,7 @@ pdf reader.
 <details>
 <summary>:key: Click to see command to copy files</summary>
 {% highlight bash %}
-scp username@milou.uppmax.uu.se:/proj/g2016035/nobackup/<username>/transcriptome/DE/coverage.pdf .
+scp username@milou.uppmax.uu.se:<the path to your results directory goes here>/transcriptome/DE/coverage.pdf .
 {% endhighlight %}
 Make sure you run this command from your own computer
 </details>
@@ -1724,9 +1732,11 @@ By default, reads are treated as not strand-specific.
 <details>
 <summary>:key: Click to see how to do this</summary>
 {% highlight bash %}
-module load bioinfo-tools trinity/2.2.1
-mkdir /proj/g2016035/nobackup/<username>/transcriptome/trinity
-cp /sw/courses/ngsintro/rnaseq/bonus/assembly/*.fasta /proj/g2016035/nobackup/<username>/transcriptome/trinity/
+module load bioinfo-tools 
+module spider trinity
+module load trinity/x.x.x
+mkdir $resDir/transcriptome/trinity
+cp /sw/courses/ngsintro/rnaseq/bonus/assembly/*.fasta $resDir/transcriptome/trinity/
 {% endhighlight %}
 </details>
 <br />
@@ -1791,10 +1801,10 @@ fastx_clipper -l 1000 -i Trinity.formated -o Trinity1000.fasta
 Align some sequences to a protein database and assess full-lengthness using NCBI blast database. Also try to see if you can find instances of spliced genes in your data by using the UCSC genome browser (do a web search to find it) 
 
 - Select BLAT from the menu at the top of the page and paste in a mouse transcript sequence from Trinity.fasta.
-- Select the mouse/mm10 genome and click ???submit???.
+- Select the mouse/mm10 genome and click “submit”.
 - Click on the top scoring hit.
 
-Examine the alignments by clicking ???details??? on the resulting page.
+Examine the alignments by clicking “details” on the resulting page.
 - Your sequences will be displayed in the browser.
 - Enable the mouse annotations (ENSEMBL gene build, UCSC genes, human proteins etc.).
 
@@ -1817,7 +1827,7 @@ For those interested in RNA-seq analysis Scilifelab offer a more advanced course
 
 
 # About authors
-Thomas K�llman :neckbeard:, Agata Smialowska :smiling_imp:, Olga Dethlefsen :angel: @ NBIS, National Bioinformatics Infrastructure Sweden
+Thomas Källman :neckbeard:, Agata Smialowska :smiling_imp:, Olga Dethlefsen :angel: @ NBIS, National Bioinformatics Infrastructure Sweden
 <br />
 <br />
 [Jump to the top](#begin)
