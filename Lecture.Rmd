@@ -1,0 +1,694 @@
+---
+title: "RNA-seq data processing and analyses"
+author: "Lena Hansson, NBIS"
+date: "18 May 2017"
+output:
+  ioslides_presentation: 
+    logo: Images/nbislogo-green.svg
+---
+
+<style type="text/css">
+pre { font-size: 13px; font-family: 'Courier New' }
+div.red { color: red }
+div.lightgrey { color: lightgrey }
+div.small { font-size: 14px }
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache=TRUE)
+dataFolder="Data/";  # in this there is a bams/out folder as well! and a countFiles
+# images are stored in the Images folder...
+library(Gviz);
+library(DEXSeq);
+library(EnsDb.Mmusculus.v79);
+library(png);
+library(grid);
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("ShortRead")
+library(ShortRead);
+
+# the DEseq part is the one that takes the time... therefore only load once when I play around with making this presentation...
+countFiles = list.files(paste0(dataFolder,"countFiles"), pattern=".txt$", full.names=TRUE)
+gffFile=paste0(dataFolder,"Mus_musculus.GRCm38.85.chr11.flat.dexseq.gff")
+
+## read in the information on the experiment
+## OBS! the order of the samples in the exp object must be the same as the order of files in the countFiles object
+exp=read.table(paste0(dataFolder,"experiment.txt"), sep="\t", header=T)
+
+## read in the data and create the DEXSeq object - the model to test is specified at this step
+dxd = DEXSeqDataSetFromHTSeq(
+  countFiles,
+  sampleData=exp,
+  design= ~ sample + exon + condition:exon,
+  flattenedfile=gffFile )
+
+## normalisation to sequencing depth
+dxd = estimateSizeFactors( dxd )
+
+## dispersion estimation to distinguish technical and biological variation (noise) from real effects on exon usage due to the different conditions
+dxd = estimateDispersions( dxd )  # takes time!!!
+  
+## testing for differential exon usage
+dxd = testForDEU( dxd )
+dxd = estimateExonFoldChanges( dxd, fitExpToVar="condition")       # takes time!
+
+## read in the data and create the DEXSeq object
+dxr = DEXSeqResults( dxd )
+```
+
+## Outline
+1. Why sequence the transcriptome
+
+2. Overview of RNA-seq (from RNA to sequence)
+
+3. RNA-seq analysis (from sequence to RNA and expression)
+
+4. Quality control (QC) of sequence data
+
+5. Reference based analysis
+
+6. De-novo assembly of transcriptomes
+
+7. Gene/Transcript expression analysis
+
+8. Differential gene expression
+
+## NGS technologies
+
+- Roche 454 (seq by synthesis)
+- Illumina HiSeq (seq by synthesis)
+- Illumina MiSeq (seq by synthesis)
+- Life Technologies SOLiD (seq by ligation)
+- PacBio SMRT cell (seq by synthesis)
+<div class="lightgrey">
+- Complete Genomics (only human)
+- Life Technologies IonTorrent
+- Oxford Nanopore 
+- etc
+</div>
+
+# Why sequence the transcriptome?
+
+##
+<div class="centered">
+![](Images/WhyRNA.png)
+</div>
+
+
+## Applications for RNA-seq
+- Identify gene sequences in genomes
+- Investigate patterns of gene expression (differential expression analysis)
+- Study isoforms and allelic expression
+- Learn about gene functions
+- Identify co-expressed gene networks
+- Identify SNPs in genes 
+- etc
+
+## What makes RNA-seq different to genome sequencing
+- Dynamic expression, which means that each tissue, time-point and cell will be different
+- Protein coding genes, non-coding RNA-seq, etc
+- Smaller sequence space as it is a subset of the complete genome
+
+# Overview of RNA-seq | - from RNA to sequence
+
+## What is in the sequences
+<table><tr><td width="600">![](Images/RNAseq.png)</td>
+<td valign="top"><div class="small">Exome sequencing<br/>poly-A selection<br/>rRNA depletion</div></td></tr>
+</table>
+
+## From RNA to sequence
+<div class="centered">
+```{r showImage1}
+grid.raster(readPNG("Images/RNAseq_overview.png"))
+```
+</div>
+
+## High-level RNA-seq workflow
+- <b>Experimental design (biology, medicine, statistics)</b>
+- RNA Extraction (biology, biotechnology)
+- Library preparation (biology, biotechnology)
+- Sequencing (engineering, chemistry, physics, biotechnology and bioinformatics)
+- <b>Data processing (bioinformatics)</b>
+- <b>Data analysis (bioinformatics, biostatistics, biology, medicine)</b>
+
+## Type of data
+- The actual sequence data is the same as for genome sequence data
+- Both single- and pair-end data
+- Major difference is that transcripts often comes from one strand and most data retain this structure eg. the sequence data is from only one strand.
+
+## RNA-seq workflow
+<div class="centered">
+```{r showImage3}
+grid.raster(readPNG("Images/Proc.png"))
+```
+</div>
+<div class="notes">
+- Two main routes: With or without reference info
+- Reference genome preferred if avalailable
+
+</div>
+
+
+
+# QC of sequence files
+
+## Quality control of fastq files (code)
+```{r QC, message=FALSE, warning=FALSE, include=TRUE, echo=TRUE}
+fls <- dir(dataFolder, "SRR3222409_1.*", full=TRUE)
+qaSummary <- ShortRead:::qa(fls, type="fastq")
+perCycle <- qaSummary[["perCycle"]]
+```
+
+To make the next two slides then simply use the commands:   
+```{r, echo=TRUE, eval=FALSE}
+ShortRead:::.plotCycleBaseCall(perCycle$baseCall)
+ShortRead:::.plotCycleQuality(perCycle$quality)
+```
+
+## Quality control of fastq files (1)
+```{r QCfig1, fig.height=5, dev.args = list(bg = 'transparent')}
+ShortRead:::.plotCycleBaseCall(perCycle$baseCall)
+```
+
+## Quality control of fastq files (2)
+```{r QCfig2, height=5, dev.args = list(bg = 'transparent')}
+ShortRead:::.plotCycleQuality(perCycle$quality)
+```
+
+## Quality values
+
+The [FASTQ format](https://en.wikipedia.org/wiki/FASTQ_format) consists of 4 lines per sequence:
+
+<div class="small">1) identifier,2) raw sequence, 3) optionally raw sequence and description again, and 4) encoding the quality value</div>
+<pre>
+@SEQ_ID<br/>
+GATTTGGGGTTCAAAGCAGTATCGATCAAATAGTAAATCCATTTGTTCAACTCACAGTTT<br/>
++<br/>
+!''*((((***+))%%%++)(%%%%).1***-+*''))**55CCF>>>>>>CCCCCCC65
+</pre>
+The character '!' represents the lowest quality while '~' is the highest ([ASCII](http://www.asciitable.com/)).
+
+The quality value Q is an integer mapping of p, the probability that the corresponding base call is incorrect.
+
+Phred quality score:
+<pre>Q = -log<sub>10</sub>(p)</pre>
+
+## Filter and trim fastq data
+Based on the QC results there are at times a need to filter "bad" data. For example:
+
+- filter reads based on quality score, e.g. with avg. quality below 20 within 4-basepair wide sliding windows
+- filter reads that after this are shorter than a given cut-off 
+- remove unwanted sequences, e.g. adapter sequences or contaminants
+- trimming can rescue coverage and reduce noise 
+ 
+- decide on deduplication
+
+## Tools for QC and trimming/filtering of fastq data
+- [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) (QC only) [ very common ]
+- [MultiQC](http://multiqc.info/) (QC only) [ common ]
+- [Prinseq](http://prinseq.sourceforge.net/manual.html) (QC and filtering)
+- [FastX-toolkit](http://hannonlab.cshl.edu/fastx_toolkit/) (QC and trimming/filtering)
+- R, via [ShortRead package](https://bioconductor.org/packages/release/bioc/vignettes/ShortRead/inst/doc/Overview.pdf) (QC and trimming/filtering) [ shown previously ]
+- [Trimmomatic](http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/TrimmomaticManual_V0.32.pdf) (Trimming/filtering)
+- [Cutadapt](http://cutadapt.readthedocs.io/en/stable/guide.html) (Trimming/filtering)
+
+
+
+# Reference based analysis
+
+## The required files
+- Read data (fastq files)  
+  From the sequencing machines
+  
+- Reference genome (fasta file)  
+  The genome sequence of the species.
+  
+- Reference annotation (GTF/GFF files)  
+  Where the genes located on the genome (gene transfer format)
+
+## Mapping reads to genomes
+<div class="centered"><img src="Images/ReadToGen.png"></div>
+
+## Mapping reads to genomes - complete alignment
+<div class="centered"><img src="Images/RNAseq2.png"</div>
+
+## Mapping reads to genomes - splice sites
+<div class="centered"><img src="Images/RNAseq3.png" /></div>
+
+
+## Mapping reads
+Lots of different aligners exists which are based on different algorithms, usually there is a tradeoff between speed versus accuracy and sensitivity.  
+
+   - Brute force comparison 
+   - Smith-Waterman 
+   - Suffix tree 
+   - Burrows-Wheeler Transform 
+
+In general the "largest difference" is on the default settings, as most mappers will allow you to overrule these.
+
+## Aligners
+<b>STAR: ultrafast universal RNA-seq aligner</b> (bioinformatics 2013) 
+<div class="small">Accurate alignment of high-throughput RNA-seq data is a challenging and yet unsolved problem because of the non-contiguous transcript structure, relatively short read lengths and constantly increasing throughput of the sequencing technologies. Currently available RNA-seq aligners suffer from high mapping error rates, low mapping speed, read length limitation and mapping biases. 
+sequential maximum mappable seed search in uncompressed suffix arrays followed by seed clustering and stitching procedure</div> 
+<br/>
+<b>Fast and accurate short read alignment with Burrows-Wheeler transform</b> (bioinformatics 2009) 
+<div class="small">backward search with Burrows-Wheeler Transform (BWT), to efficiently align short sequencing reads against a large reference sequence such as the human genome, allowing mismatches and gaps.</div> 
+<br/>
+<b>Hisat2</b>
+<div class="small">graph-based alignment of next generation sequencing reads to a population of genomes (Hierarchical Graph FM index)</div>
+<br/>
+<b>TopHat: discovering splice junctions with RNA-Seq</b> (bioinformatics 2009) 
+<div class="small">TopHat is an efficient read-mapping algorithm designed to align reads from an RNA-Seq experiment to a reference genome without relying on known splice sites.</div>
+
+
+## The BAM/SAM format
+[SAM](https://github.com/samtools/hts-specs/blob/master/SAMv1.pdf) = Sequence Alignment/Map format
+
+You want them stored as BAM files (!). To look at a BAM file, use 
+
+<pre>
+samtools view <i>name_of_file</i>
+samtools view <i>name_of_file</i> | head -1
+</pre>
+
+<img src="Images/samFormat.png" style="width:800px" />
+
+
+
+## Look at the mapped reads (code)
+
+```{r GvizTracks, echo=TRUE}
+library(Gviz);
+edb <- EnsDb.Mmusculus.v79
+gen <- "mm10"
+bamFiles <- list.files(paste0(dataFolder,"bams/out"), pattern = "*sorted.bam$", full.names = TRUE, recursive = TRUE)
+options(ucscChromosomeNames=FALSE)
+gat <- GenomeAxisTrack()
+gr <- getGeneRegionTrackForGviz(edb, chromosome = 2, start = 66673425, end = 66784914, featureIs = "tx_biotype")
+genome(gr) <- "mm10"
+aTrack2 <- AnnotationTrack(range = bamFiles[4], genome = gen, name = "Reads", chromosome = 2)
+
+toPlot <- append(list(gat, GeneRegionTrack(gr)), aTrack2)
+```
+
+To make the next slide simply use the command: 
+
+```{r plotTracksCmd, eval=FALSE, echo=TRUE}
+plotTracks(toPlot, from = 66670000, to = 66700000, sizes = c(10,10,200))
+```
+
+## Look at the mapped reads
+```{r plotmap, warning=FALSE}
+plotTracks(toPlot, from = 66670000, to = 66700000, sizes = c(10,10,200))
+```
+
+## 
+<img src="Images/IGV.png" style="width: 800px;" />
+
+
+
+## QC of mapped data
+Group       Total bases Tag counts  Tags/Kb
+-----       ----------- ----------  -------
+CDS Exons   33302033    20002271    600.63
+5'UTR       21717577    4408991     203.01
+3'UTR       15347845    3643326     237.38
+Introns     1132597354  6325392     5.58
+TSS up 1kb  17957047    215331      11.99
+TES dn 1kb  18298543    266161      14.55
+
+## QC of mapped data
+<div class="centered">
+![](Images/junction.png)  
+</div>  
+  
+</br>
+Available tools:  
+- [Qualimap](http://qualimap.bioinfo.cipf.es/)  
+- [RseQC](http://rseqc.sourceforge.net/)  
+- [Picard Tools](https://broadinstitute.github.io/picard/)  
+- [RNA-SeQC](http://archive.broadinstitute.org/cancer/cga/rna-seqc)    
+
+
+
+# De-novo assembly of transriptomes
+
+## Why? 
+- No reference genome available
+- Identify novel transcripts (genes or splice variants)
+- Identify fusion genes or transcription from unknown origin
+
+Can be likened to a 3D jigsaw puzzle of reads
+
+Challenges include sequence errors, repeats, polyploidy, GC content/complexity, large amount of data, and contaminations.
+
+## How?
+- Assemble the transriptome from the generated short reads
+- All useful methods rely on generating a structure called a de-bruijn graph that in this context aims at extenting k-mers in the short reads to longer unambiguous sequences corresponding to transcripts
+
+## From short reads to isoforms
+<table><tr><td width="700"><center>
+![](Images/denovo.png)
+</center></td><td width="50"><div class="small">Yellow bases = <br/> overlap start</div></td></tr></table>
+
+## Trinity
+<div class="centered"><img src="Images/trinity.png" style="height:550px"></div>
+```{bash, eval=FALSE, echo=TRUE}
+Trinity --seqType fq --left reads_1.fq --right reads_2.fq --CPU 6 --max_memory 20G 
+```
+
+```{r, eval=FALSE}
+trintity="a de-novo assembler consisting of 3 steps"
+inchworm="Inchworm assembles RNA-Seq reads from fasta-formatted files"
+```
+
+## Other possibilities
+- [SOAPdenovo](http://soap.genomics.org.cn/soapdenovo.html) 
+- [Oases](http://www.ebi.ac.uk/~zerbino/oases/) (last updated 2011)
+- [Trans-ABySS](http://www.bcgsc.ca/platform/bioinfo/software/trans-abyss)
+- [Velvet](https://www.ebi.ac.uk/~zerbino/velvet/) (2011 for very short reads)
+- [Newbler](https://swes.cals.arizona.edu/maier_lab/kartchner/documentation/index.php/home/docs/newbler) (for 454 from 2012)
+- [String Graph Assembler](https://github.com/jts/sga) (SGA updated a year ago)
+- [Mira](http://mira-assembler.sourceforge.net/docs/DefinitiveGuideToMIRA.html) (2014)
+
+## QC of de-novo assemblies
+- How large fraction of reads can be mapped back to the assembly
+- Total sequence length of all assembled sequences
+- Number of trancripts generated
+- Compare to related species with genome information
+- Predict open reading frames and protein domains
+- etc 
+
+## 
+![](Images/AssemblyOverview.png)
+
+<center><div class="small">GAGE: a critical evaluation of genome assemblies and assembly algorithms</b> (Genome Res 2012)</div></center>
+
+
+
+# Gene/Transcript expression analysis
+
+## From sequence to expression
+- Read counts is a measure of expression level
+- Many reads mapping to a genomic feature = high expression
+- The expression can be quantified on any level eg. gene, transcript (isoforms), or exons.
+
+## Counting reads | Reference based approach
+<div class="centered">
+![](Images/HTseq.png)
+</div>
+
+<div class="small">In the last example multi-mapping reads were disregarded, would it be a difference if instead of gene_A and gene_B it said transcript_A and transcript_B?</div>
+
+
+## Quantifying abundance
+
+<b>Near-optimal probabilistic RNA-seq quantification</b> <div class="small">(Nature biotec 2016) 
+two orders of magnitude faster than previous approaches and achieves similar accuracy. <b>Kallisto</b> pseudoaligns reads to a reference, producing a list of transcripts that are compatible with each read while avoiding alignment of individual bases.</div> 
+<br/>
+<b>HTSeq a Python framework to work with high-throughput sequencing data</b> <div class="small">(Bioinformatics 2015) 
+once a project deviates from standard workflows, custom scripts are needed. We present HTSeq a tool developed with HTSeq that preprocesses RNA-Seq data for differential expression analysis by counting the overlap of reads with genes</div> 
+<br/>
+<b>Transcript assembly and quantification by RNA-Seq reveals unannotated transcripts and isoform switching during cell differentiation</b> <div class="small">(Nature biotec 2010) aka Cufflinks 
+algorithms that are not restricted by prior gene annotations and that account for alternative transcription and splicing</div> 
+<br/>
+<div class="lightgrey">
+<b>RSEM: accurate transcript quantification from RNA-Seq data with or without a reference genome</b> <div class="small">(BMC bioinf 2011) 
+A key challenge in transcript quantification from RNA-Seq data is the handling of reads that map to multiple genes or isoforms does not rely on the existence of a reference genome</div>
+</div>
+
+## Counting reads | de-novo assembly
+- Map reads to the assembled transcriptome 
+- Count reads mapping to the different transcripts that have been assembled.
+- It is not as easy as it sound as transcripts can be very redundant and a read might map to multiple transcripts equally well.
+- Tools available RSEM, (kallisto and salmon)
+
+## Count matrix
+<div class="centered">
+![](Images/tableCounts.png)
+</div>
+
+<br/>
+<b>Note</b> the large fraction of 0
+
+## Counts to expression
+- The counts depend on both the number of sequences generated from a samples and on the sequence length of the gene/transcript
+- Counts per million (CPM) is used to take out the effect of sequence depth
+- Reads per kilobasepair and million (RPKM, FPKM) also takes the lengh of genes into account
+- Several other normalisations are available and is used to optimize power in detection of differential expression
+
+- When should a gene be considered "present"/"expressed"?
+
+## Normalisation
+<center><img src="Images/unnormalised.png" style="width:600px"></center>
+
+## Normalisation
+<center><img src="Images/normalised.png" style="width:550px"></center>
+
+## Normalisation
+Reads per KiloBase Million (RPKM)  
+
+<div class="small">
+   - Count up the total reads in a sample and divide that number by 1,000,000, per million scaling factor. 
+   - Divide the read counts by the per million scaling factor. This normalizes for sequencing depth, giving you reads per million (RPM) 
+   - Divide the RPM values by the length of the gene, in kilobases. This gives you RPKM. </div>
+
+Fragments per KiloBase Million (FPKM)  
+
+<div class="small">
+   - The only difference between RPKM and FPKM is that FPKM takes into account that two reads can map to one fragment (and so it doesn't count this fragment twice). </div>
+
+Transcripts per KiloBase Million (TPM) 
+
+<div class="small">
+   - Divide the read counts by the length of each gene in kilobases. This gives you reads per kilobase (RPK). 
+   - Count up all the RPK values in a sample and divide this number by 1,000,000. This is your per million scaling factor. 
+   - Divide the RPK values by the per million scaling factor. This gives you TPM. 
+</div>
+
+## "Biological QC" - PCA
+
+The "purpose" of a PCA is to determine what is the best way to re-express X?
+
+<table>
+<tr><td><img src="Images/PCAdata.png" style="width: 300px;"/></td><td>&nbsp;</td></tr>
+</table>
+
+## "Biological QC" - PCA
+
+The "purpose" of a PCA is to determine what is the best way to re-express X?
+
+<table>
+<tr><td><img src="Images/PCAdata.png" style="width: 300px;"/></td><td width='400'>&nbsp;</td></tr>
+<tr><td colspan="2"><center><img src="Images/PCA_1.png" style="height: 55px;"/></center></td></tr>
+</table>
+
+## "Biological QC" - PCA
+
+The "purpose" of a PCA is to determine what is the best way to re-express X?
+
+<table>
+<tr><td><img src="Images/PCAdata.png" style="width: 300px;"/></td><td><img src="Images/PCA_2.png" style="width: 400px;"/></td></tr>
+<tr><td colspan="2"><center><img src="Images/PCA_1.png" style="height: 55px;"/></center></td></tr>
+</table>
+
+## "Biological QC" - PCA
+
+<table>
+<tr>
+  <td rowspan=""><img src="Images/PCA_2.png" style="width: 300px;"/></td>
+  <td><img src="Images/PCA_3_scaling_does_not_matter.png" style="width: 250px;"/></td>
+  <td valign="middle">Scaling does not matter (top), whereas log2 transformation of the data results in the same conclusion but different picture (bottom).</td>
+</tr>
+<tr>
+  <td valign="bottom">[PCA tutorial](https://www.cs.princeton.edu/picasso/mats/PCA-Tutorial-Intuition_jp.pdf)</td>
+  <td><img src="Images/PCA_4_log_does.png" style="width: 250px;"/></td>
+</tr>
+</table>
+
+
+
+## "Biological QC" - single gene analysis
+
+Would you be happy with the below results?
+<table>
+<tr><td><img src="Images/GeneRPKM.png" style="width: 400px;"/></td><td>&nbsp;&nbsp;SumFPKM = 357 941 648</td></tr>
+</table>
+
+## "Biological QC" - single gene analysis
+
+Would you be happy with the below results?
+<table>
+<tr><td><img src="Images/GeneRPKM.png" style="width: 400px;"/></td><td>SumFPKM = 357 941 648</td></tr>
+</table>
+
+The sum of the FPKM for the 4.572 snoRNAs, yRNAs, miRs, rna5, rna2, scaRNA is 357 331 046, which is 99.8% of the total
+
+```{r, eval=FALSE}
+note = "
+Is this a good result?
+
+Small nucleolar RNAs (snoRNAs) are a class of small RNA molecules that primarily guide chemical modifications of other RNAs, mainly ribosomal RNAs, transfer RNAs and small nuclear RNAs. There are two main classes of snoRNA, the C/D box snoRNAs, which are associated with methylation, and the H/ACA box snoRNAs, which are associated with pseudouridylation. SnoRNAs are commonly referred to as guide RNAs but should not be confused with the guide RNAs that direct RNA editing in trypanosomes.
+
+Small nucleolar RNAs (snoRNAs) are an ancient class of small non-coding RNAs present in all eukaryotes and a subset of archaea that carry out a fundamental role in the modification and processing of ribosomal RNA
+
+Y RNAs are small non-coding RNAs. They are components of the Ro60 ribonucleoprotein particle which is a target of autoimmune antibodies in patients with systemic lupus erythematosus. They are also necessary for DNA replication through interactions with chromatin and initiation proteins.
+
+Small Cajal body-specific RNAs (scaRNAs) are a class of small nucleolar RNAs (snoRNAs) that specifically localise to the Cajal body, a nuclear organelle (cellular sub-organelle) involved in the biogenesis of small nuclear ribonucleoproteins (snRNPs or snurps). ScaRNAs guide the modification (methylation and pseudouridylation) of RNA polymerase II transcribed spliceosomal RNAs U1, U2, U4, U5 and U12.
+"
+```
+
+## Differential gene expression
+- Read counts (and CPM etc) does not follow a normal distribution
+- In most experiments few replicates are used, limited power unless we use model based analysis for detection of DE
+- It is  recommended to use softwares designed specifically for RNA-seq DE analysis
+   - Some useful R Bioconductor tools
+      - [edgeR](https://www.bioconductor.org/packages/devel/bioc/vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf)
+      - [DESeq2](http://bioconductor.org/packages/release/bioc/html/DESeq2.html)
+      - [limma](https://bioconductor.org/packages/release/bioc/html/limma.html)
+
+
+## Differential gene expression
+
+<b>edgeR: a Bioconductor package for differential expression analysis of digital gene expression data</b> (Bioinformatics 2010)
+<div class="small">
+An overdispersed Poisson model is used to account for both biological and technical variability. Empirical Bayes methods are used to moderate the degree of overdispersion across transcripts, improving the reliability of inference. The methodology can be used even with the most minimal levels of replication, provided at least one phenotype or experimental condition is replicated</div>
+<br/>
+
+<b>Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2</b> (Genome Biol 2014)
+<div class="small">small replicate numbers, discreteness, large dynamic range and the presence of outliers require a suitable statistical approach
+using shrinkage estimation for dispersions and fold changes to improve stability and interpretability of estimates. This enables a more quantitative analysis focused on the strength rather than the mere presence of differential expression</div>
+<br/>
+
+[CummeRbund](http://compbio.mit.edu/cummeRbund/)<div class="small"> takes the various output files from a <u>cuffdiff</u> run and creates a SQLite database of the results describing appropriate relationships betweeen genes, transcripts, transcription start sites, and CDS regions. Once stored and indexed, data for these features, even across multiple samples or conditions, can be retrieved very efficiently numerous plotting functions as well for commonly used visualizations</div>
+
+
+## Differential gene expression (code)
+<pre>
+countFiles = list.files(paste0(dataFolder,"countFiles"), pattern=".txt$", full.names=TRUE); # assume count files are .txt files
+gffFile=paste0(dataFolder,"Mus_musculus.GRCm38.85.chr11.flat.dexseq.gff")
+
+read in the information on the experiment - Note the order of the samples must be the same
+exp=read.table(paste0(dataFolder,"experiment.txt"), sep="\t", header=T)
+
+read in the data and create the DEXSeq object - the model to test is specified at this step
+dxd = DEXSeqDataSetFromHTSeq(countFiles, sampleData=exp,
+    design= ~ sample + exon + condition:exon, flattenedfile=gffFile )
+
+dxd = estimateSizeFactors( dxd )   # normalise to sequencing depth
+
+dispersion estimation to distinguish technical and biological variation (noise) from real effects on exon usage due to the different conditions
+dxd = estimateDispersions( dxd )  # takes time!!!
+  
+dxd = testForDEU( dxd )           # testing for differential exon usage
+dxd = estimateExonFoldChanges( dxd, fitExpToVar="condition")
+
+dxr = DEXSeqResults( dxd )        # create the DEXSeq object
+</pre>
+
+## Dispersion plot
+```{r plotDisp}
+plotDispEsts( dxd )
+```
+```{r, eval=FALSE}
+dispPlot="DESeq2 paper http://biorxiv.org/content/biorxiv/early/2014/11/17/002832.full.pdf - 
+look at the section for empircal bayes shrinkage 
+basically tries to handle the fact that you tend to have few replicates and therefore have noisy data by trying to move the expression value closer to some mean
+```
+
+## Exon use
+```{r exonUsePlot}
+plotDEXSeq(dxr, "ENSMUSG00000017421", legend = TRUE, cex.axis = 1.2, cex = 1.3, lwd = 2)
+```
+
+## Summary
+- Many different expertises needed for RNA-seq experiments 
+- Think ahead, plan wisely, ask for help
+- <div class="red">If your experimental design is wrong, nothing will help</div>
+- Assess and try to improve the quality of raw reads use QC tools and talk to sequencing centre  
+   - <div class="red">Remove low quality samples</div> 
+- Dont be afraid of trying multiple approaches 
+  - These is a reason why there is no consensus in the field which programs are the best for the different steps...
+
+- Check the validity of your samples on both technical and biological level
+
+## Summary | Reference based
+- Map to genome and use available annotations
+- Count reads and check that the majority map according to expectations  
+   - Note this it is rarely as simple as it is made out here(!)
+- Does count summaries make sense?
+- Use appropriate tools and software for detection of differentially expressed (DE) genes  
+   - Note that this could depend on your experimental setup
+
+## Summary | De-novo
+- Use reference genome to guide it, if available
+- Spend lots of time in assessing the results e.g. by comparing related species, looking at ORFs etc
+- Consider merging with other data sources
+- Try multiple assemblers
+
+## Gene expresssion
+
+- Ensure that your experimental design allows addressing the question of interest. 
+- More replicates translates into more power for differential gene expression and easier publication process
+
+
+
+# Exercises for today and tomorrow
+
+## Main exercise | Reference based expression analysis
+
+- checking the quality of the raw reads with [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
+- map reads to the reference genome using [STAR](https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf)
+- converting between SAM and BAM format using [Samtools](http://samtools.sourceforge.net/)
+- assess the post-alignment read quality using [QualiMap](http://qualimap.bioinfo.cipf.es/)
+- count reads overlapping with gene regions using [featureCounts](http://bioinf.wehi.edu.au/featureCounts/)
+- Identify differentially expressed genes using a prepared r-script relying on [edgeR](http://bioconductor.org/packages/release/bioc/html/edgeR.html)
+
+## Bonus exercises | Only if times allow
+
+- functional annotation
+  - putting DE genes in the biological context 
+- exon usage, studying the alternative splicing
+- data visualisation and graphics
+- de novo transcriptome assembly
+
+
+# Tips and Trixs
+
+## You will re-use the same commands over and over again
+
+Avoid running things directly from the command line as this is not reproducible!  
+- for command line tools at the very least "log" in a bash script
+    <pre>
+FILES=*bam
+for currentFile in $FILES
+do
+  echo "loop around many files in the same folder at the same time"
+  echo "the name of the current file can be found via $currentFile"
+done
+</pre>
+- notebooks - collect your data, code, and plots  
+    - for R try [RStudio](https://www.rstudio.com/)  
+        - this lecture was written in [RMarkdown](http://rmarkdown.rstudio.com/) 
+    - for python try [Jupyter Notebook](http://jupyter.org/)
+
+## Manuals for some of the tools
+
+[GATK best practise](https://software.broadinstitute.org/gatk/best-practices/)
+
+<b>Aligners</b> 
+   - [STAR](https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf) 
+   - [BWA](http://bio-bwa.sourceforge.net/bwa.shtml) 
+   - [TopHat](https://ccb.jhu.edu/software/tophat/manual.shtml) (bowtie2)
+
+<b>Counts</b> (or quantifying abundance of genes/transcripts) 
+   - [Kallisto](https://pachterlab.github.io/kallisto/about.html) (T) 
+   - [Htseq-count](http://www-huber.embl.de/users/anders/HTSeq/doc/count.html) (G) 
+   - [Cufflinks](http://cole-trapnell-lab.github.io/cufflinks/manual/) (T) 
+   - [RSEM](http://deweylab.github.io/RSEM/README.html) (G/T) 
+
+<b>Differential expression</b>
+  - [edgeR](https://www.bioconductor.org/packages/devel/bioc/vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf)  
+  - [DESeq2](http://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.pdf)  
+
